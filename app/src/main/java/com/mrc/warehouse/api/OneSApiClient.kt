@@ -1,0 +1,223 @@
+package com.mrc.warehouse.api
+
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.net.InetSocketAddress
+import java.net.Proxy
+import java.util.concurrent.TimeUnit
+
+/**
+ * Android port of the Python OneSApiClient.
+ * Uses OkHttp directly (no Retrofit) – same style as the Django client uses requests.
+ *
+ * All methods now check response.isSuccessful and return empty defaults
+ * on failure instead of risking corrupt data from error pages.
+ *
+ * @param baseUrl e.g. "http://cloud.my.ru:1234"
+ * @param dbName  e.g. "db_work"
+ */
+class OneSApiClient(
+    private val username: String,
+    private val password: String,
+    private val baseUrl: String,
+    private val dbName: String,
+    private val proxyHost: String = "",
+    private val proxyPort: String = "",
+    private val proxyUser: String = "",
+    private val proxyPassword: String = "",
+    private val proxyType: Int = 0 // 0=none, 1=HTTP, 2=SOCKS5
+) {
+
+    companion object {
+        private const val USER_AGENT = "okhttp/4.2.1"
+    }
+
+    private val gson = Gson()
+
+    private val client: OkHttpClient by lazy {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .addInterceptor { chain ->
+                val original = chain.request()
+                val userPass = "$username:$password"
+                val encoded = java.util.Base64.getEncoder().encodeToString(userPass.toByteArray(Charsets.UTF_8))
+                val auth = "Basic $encoded"
+                val request = original.newBuilder()
+                    .header("Authorization", auth)
+                    .header("User-Agent", USER_AGENT)
+                    .method(original.method, original.body)
+                    .build()
+                chain.proceed(request)
+            }
+
+        // Configure proxy if set
+        if ((proxyType != 0) && (proxyHost.isNotBlank() && proxyPort.isNotBlank())) {
+            val port = proxyPort.toIntOrNull() ?: 0
+            if (port > 0) {
+                val proxyTypeJava = when (proxyType) {
+                    2 -> Proxy.Type.SOCKS
+                    else -> Proxy.Type.HTTP
+                }
+                val proxy = Proxy(proxyTypeJava, InetSocketAddress(proxyHost, port))
+                builder.proxy(proxy)
+
+                // If proxy requires authentication
+                if (proxyUser.isNotBlank()) {
+                    builder.proxyAuthenticator { _, response ->
+                        val credential = okhttp3.Credentials.basic(proxyUser, proxyPassword)
+                        response.request.newBuilder()
+                            .header("Proxy-Authorization", credential)
+                            .build()
+                    }
+                }
+            }
+        }
+
+        builder.build()
+    }
+
+    private fun apiUrl(path: String) = "$baseUrl/$dbName/hs/api/v1/$path"
+
+    /** Проверка авторизации: GET /hs/api/v1/login */
+    @Throws(Exception::class)
+    fun login(): LoginResponse? {
+        val url = apiUrl("login")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (response.isSuccessful) {
+            return response.body?.string()?.let { gson.fromJson(it, LoginResponse::class.java) }
+        }
+        throw RuntimeException("Сервер вернул код ${response.code}: ${response.body?.string()}")
+    }
+
+    /** Список складов */
+    fun getStorages(): List<StorageItem> {
+        val url = apiUrl("storages")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return emptyList()
+        val body = response.body?.string() ?: "[]"
+        val type = object : TypeToken<List<StorageItem>>() {}.type
+        return gson.fromJson(body, type)
+    }
+
+    /** Остатки по складу */
+    fun getBalances(storageGuid: String): List<BalanceItem> {
+        val url = apiUrl("balances-report?storage=$storageGuid")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return emptyList()
+        val body = response.body?.string() ?: "[]"
+        val type = object : TypeToken<List<BalanceItem>>() {}.type
+        return gson.fromJson(body, type)
+    }
+
+    /** Справочник товаров */
+    fun getProducts(): List<ProductItem> {
+        val url = apiUrl("products")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return emptyList()
+        val body = response.body?.string() ?: "[]"
+        val type = object : TypeToken<List<ProductItem>>() {}.type
+        return gson.fromJson(body, type)
+    }
+
+    /** Задачи пользователя */
+    fun getTasksUser(): TasksResponse {
+        val url = apiUrl("tasks-user")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return TasksResponse()
+        val body = response.body?.string() ?: "{}"
+        return gson.fromJson(body, TasksResponse::class.java)
+    }
+
+    /** Клиенты */
+    fun getClients(): List<ClientItem> {
+        val url = apiUrl("clients")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return emptyList()
+        val body = response.body?.string() ?: "[]"
+        val type = object : TypeToken<List<ClientItem>>() {}.type
+        return gson.fromJson(body, type)
+    }
+
+    /** Свободные (нераспределённые) задачи */
+    fun getTasksUnallocated(): TasksResponse {
+        val url = apiUrl("tasks-unallocated")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return TasksResponse()
+        val body = response.body?.string() ?: "{}"
+        return gson.fromJson(body, TasksResponse::class.java)
+    }
+
+    /** Взятие свободной заявки: POST /hs/api/v1/task-take с {"guid":"..."} */
+    fun taskTake(guid: String): TaskTakeResponse {
+        val url = apiUrl("task-take")
+        val json = gson.toJson(mapOf("guid" to guid))
+        val body = json.toRequestBody("application/json".toMediaType())
+        val request = Request.Builder().url(url).post(body).build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            val errorBody = response.body?.string()
+            return try {
+                gson.fromJson(errorBody, TaskTakeResponse::class.java) ?: TaskTakeResponse(error = "HTTP ${response.code}")
+            } catch (e: Exception) {
+                TaskTakeResponse(error = "HTTP ${response.code}: $errorBody")
+            }
+        }
+        val respBody = response.body?.string() ?: "{}"
+        return gson.fromJson(respBody, TaskTakeResponse::class.java) ?: TaskTakeResponse()
+    }
+
+    /** Закрытие заявки с комментарием и/или вложениями: POST /hs/api/v1/task-close */
+    fun taskClose(requestBody: TaskCloseRequest): Boolean {
+        val url = apiUrl("task-close")
+        val json = gson.toJson(requestBody)
+        val mediaType = "application/json".toMediaType()
+        val body = json.toRequestBody(mediaType)
+        val request = Request.Builder().url(url).post(body).build()
+        val response = client.newCall(request).execute()
+        return response.isSuccessful
+    }
+
+    /** Закрытые заявки пользователя */
+    fun getClosedTasksUser(): TasksResponse {
+        val url = apiUrl("closed-tasks-user")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return TasksResponse()
+        val body = response.body?.string() ?: "{}"
+        return gson.fromJson(body, TasksResponse::class.java)
+    }
+
+    /** Зарплата за период */
+    fun getSalary(startDate: String, endDate: String): SalaryResponse {
+        val url = apiUrl("salary?start_date=$startDate&end_date=$endDate")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return SalaryResponse()
+        val body = response.body?.string() ?: "{}"
+        return gson.fromJson(body, SalaryResponse::class.java)
+    }
+
+    /** Движения по складу (приходы/списания) */
+    fun getMovements(storageGuid: String, startDate: String, endDate: String): List<StorageMovement> {
+        val url = apiUrl("movements?storage=$storageGuid&start_date=$startDate&end_date=$endDate")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return emptyList()
+        val body = response.body?.string() ?: "[]"
+        val type = object : TypeToken<List<StorageMovement>>() {}.type
+        return gson.fromJson(body, type)
+    }
+}

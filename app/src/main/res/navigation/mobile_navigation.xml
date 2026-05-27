@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mobile_navigation"
+    app:startDestination="@id/navigation_tasks">
+
+    <fragment
+        android:id="@+id/navigation_tasks"
+        android:name="com.mrc.warehouse.ui.TasksFragment"
+        android:label="Мои заявки"
+        tools:layout="@layout/fragment_tasks" />
+
+    <fragment
+        android:id="@+id/navigation_free_tasks"
+        android:name="com.mrc.warehouse.ui.FreeTasksFragment"
+        android:label="Свободные заявки"
+        tools:layout="@layout/fragment_tasks" />
+
+    <fragment
+        android:id="@+id/navigation_closed_tasks"
+        android:name="com.mrc.warehouse.ui.ClosedTasksFragment"
+        android:label="Закрытые заявки"
+        tools:layout="@layout/fragment_tasks" />
+
+    <fragment
+        android:id="@+id/navigation_warehouse"
+        android:name="com.mrc.warehouse.ui.WarehouseFragment"
+        android:label="Склад"
+        tools:layout="@layout/fragment_warehouse" />
+
+    <fragment
+        android:id="@+id/navigation_reports"
+        android:name="com.mrc.warehouse.ui.ReportsFragment"
+        android:label="Отчеты"
+        tools:layout="@layout/fragment_reports" />
+    <fragment
+        android:id="@+id/navigation_salary"
+        android:name="com.mrc.warehouse.ui.SalaryFragment"
+        android:label="Моя зарплата"
+        tools:layout="@layout/fragment_salary" />
+</navigation>
