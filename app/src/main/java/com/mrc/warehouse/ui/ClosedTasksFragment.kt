@@ -61,7 +61,7 @@ class ClosedTasksFragment : Fragment() {
         binding.chipSortCreation.isChecked = currentSortMode == "creation"
         binding.chipSortPriority.isChecked = currentSortMode == "priority"
 
-        binding.tvTitle.text = "Закрытые заявки"
+        binding.tvTitle.visibility = View.GONE
         binding.chipSortCreation.setOnClickListener { setSortMode("creation") }
         binding.chipSortDeadline.setOnClickListener { setSortMode("deadline") }
         binding.chipSortPriority.setOnClickListener { setSortMode("priority") }

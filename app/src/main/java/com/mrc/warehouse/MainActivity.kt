@@ -8,27 +8,19 @@ import android.os.Build
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
-import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.PopupMenu
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.NavHostFragment
-import androidx.navigation.ui.NavigationUI
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.mrc.warehouse.databinding.ActivityMainBinding
 import com.mrc.warehouse.ui.TasksSheetFragment
 import com.mrc.warehouse.service.FreeTasksPollingService
-import com.mrc.warehouse.util.NetworkUtil
 import com.mrc.warehouse.util.SessionManager
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
@@ -39,8 +31,6 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        // Запускаем сервис только если разрешение получено (на Android 13+)
-        // Если разрешения нет, сервис не запускаем, чтобы избежать SecurityException
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted) {
             FreeTasksPollingService.start(this)
         }
@@ -60,28 +50,9 @@ class MainActivity : AppCompatActivity() {
             .findFragmentById(R.id.nav_host_fragment_activity_main) as NavHostFragment
         val navController = navHostFragment.navController
 
-        val navView: BottomNavigationView = binding.navView
-
-        // Custom listener: "Заявки" opens bottom sheet, "Настройки" opens dialog, others navigate normally
-        navView.setOnItemSelectedListener { item ->
-            when (item.itemId) {
-                R.id.navigation_tasks -> {
-                    val sheet = TasksSheetFragment()
-                    sheet.show(supportFragmentManager, "TasksSheet")
-                    true
-                }
-                R.id.navigation_reports -> {
-                    NavigationUI.onNavDestinationSelected(item, navController)
-                    true
-                }
-                R.id.navigation_settings -> {
-                    showAppSettingsDialog()
-                    true
-                }
-                else -> {
-                    NavigationUI.onNavDestinationSelected(item, navController)
-                }
-            }
+        // Set up menu button (hamburger icon) — shows PopupMenu on click
+        binding.btnMenu.setOnClickListener { v ->
+            showPopoverMenu(v)
         }
 
         // === Обработка кнопки "Назад" через OnBackPressedDispatcher ===
@@ -89,10 +60,8 @@ class MainActivity : AppCompatActivity() {
             override fun handleOnBackPressed() {
                 val currentDestination = navController.currentDestination
                 if (currentDestination?.id != R.id.navigation_tasks) {
-                    // На любом экране, кроме "Мои заявки" → возвращаемся на "Мои заявки"
                     navController.popBackStack(R.id.navigation_tasks, false)
                 } else {
-                    // Уже на "Мои заявки" → показываем диалог выхода
                     val dialog = AlertDialog.Builder(this@MainActivity, R.style.Theme_MrCWarehouse_Dialog)
                         .setTitle("Выход")
                         .setMessage("Вы действительно хотите выйти из приложения?")
@@ -101,7 +70,6 @@ class MainActivity : AppCompatActivity() {
                         }
                         .setNegativeButton("Нет", null)
                         .show()
-                    // Цвет заголовка (если не задан в теме)
                     dialog.setOnShowListener {
                         val titleView = dialog.findViewById<TextView>(com.google.android.material.R.id.alertTitle)
                             ?: dialog.findViewById<TextView>(android.R.id.title)
@@ -113,6 +81,48 @@ class MainActivity : AppCompatActivity() {
 
         // Start or stop background polling based on user preference
         updatePollingService()
+    }
+
+    private fun showPopoverMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(0, R.id.navigation_tasks, 0, "Заявки")
+            menu.add(0, R.id.navigation_warehouse, 0, "Склад")
+            menu.add(0, R.id.navigation_salary, 0, "Зарплата")
+            menu.add(0, R.id.navigation_reports, 0, "Отчеты")
+            menu.add(0, R.id.navigation_settings, 0, "Настройки")
+
+            setOnMenuItemClickListener { item ->
+                handleMenuItemClick(item)
+                true
+            }
+
+            show()
+        }
+    }
+
+    private fun handleMenuItemClick(item: android.view.MenuItem) {
+        val navHostFragment = supportFragmentManager
+            .findFragmentById(R.id.nav_host_fragment_activity_main) as NavHostFragment
+        val navController = navHostFragment.navController
+
+        when (item.itemId) {
+            R.id.navigation_tasks -> {
+                val sheet = TasksSheetFragment()
+                sheet.show(supportFragmentManager, "TasksSheet")
+            }
+            R.id.navigation_warehouse -> {
+                navController.navigate(R.id.navigation_warehouse)
+            }
+            R.id.navigation_salary -> {
+                navController.navigate(R.id.navigation_salary)
+            }
+            R.id.navigation_reports -> {
+                navController.navigate(R.id.navigation_reports)
+            }
+            R.id.navigation_settings -> {
+                showAppSettingsDialog()
+            }
+        }
     }
 
     override fun onResume() {
@@ -144,12 +154,10 @@ class MainActivity : AppCompatActivity() {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
-                // Запрашиваем разрешение, сервис запустится в колбэке
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                 return
             }
         }
-        // Разрешение уже есть или Android < 13 — запускаем сразу
         FreeTasksPollingService.start(this)
     }
 

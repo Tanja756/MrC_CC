@@ -199,7 +199,7 @@ class TasksFragment : Fragment() {
         binding.chipSortCreation.isChecked = currentSortMode == "creation"
         binding.chipSortPriority.isChecked = currentSortMode == "priority"
 
-        binding.tvTitle.text = "Мои заявки"
+        binding.tvTitle.visibility = View.GONE
         binding.chipSortCreation.setOnClickListener { setSortMode("creation") }
         binding.chipSortDeadline.setOnClickListener { setSortMode("deadline") }
         binding.chipSortPriority.setOnClickListener { setSortMode("priority") }

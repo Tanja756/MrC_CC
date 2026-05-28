@@ -21,18 +21,23 @@ class TasksSheetFragment : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        val navController = findNavController()
+
         view.findViewById<View>(R.id.layoutMyTasks).setOnClickListener {
-            findNavController().navigate(R.id.navigation_tasks)
+            val bundle = Bundle().apply { putInt("pageIndex", 0) }
+            navController.navigate(R.id.navigation_tasks, bundle)
             dismiss()
         }
 
         view.findViewById<View>(R.id.layoutFreeTasks).setOnClickListener {
-            findNavController().navigate(R.id.navigation_free_tasks)
+            val bundle = Bundle().apply { putInt("pageIndex", 1) }
+            navController.navigate(R.id.navigation_tasks, bundle)
             dismiss()
         }
 
         view.findViewById<View>(R.id.layoutClosedTasks).setOnClickListener {
-            findNavController().navigate(R.id.navigation_closed_tasks)
+            val bundle = Bundle().apply { putInt("pageIndex", 2) }
+            navController.navigate(R.id.navigation_tasks, bundle)
             dismiss()
         }
     }

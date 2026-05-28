@@ -7,21 +7,15 @@
 
     <fragment
         android:id="@+id/navigation_tasks"
-        android:name="com.mrc.warehouse.ui.TasksFragment"
-        android:label="Мои заявки"
-        tools:layout="@layout/fragment_tasks" />
+        android:name="com.mrc.warehouse.ui.TasksPagerFragment"
+        android:label="Заявки"
+        tools:layout="@layout/fragment_tasks_pager">
 
-    <fragment
-        android:id="@+id/navigation_free_tasks"
-        android:name="com.mrc.warehouse.ui.FreeTasksFragment"
-        android:label="Свободные заявки"
-        tools:layout="@layout/fragment_tasks" />
-
-    <fragment
-        android:id="@+id/navigation_closed_tasks"
-        android:name="com.mrc.warehouse.ui.ClosedTasksFragment"
-        android:label="Закрытые заявки"
-        tools:layout="@layout/fragment_tasks" />
+        <argument
+            android:name="pageIndex"
+            android:defaultValue="0"
+            app:argType="integer" />
+    </fragment>
 
     <fragment
         android:id="@+id/navigation_warehouse"
