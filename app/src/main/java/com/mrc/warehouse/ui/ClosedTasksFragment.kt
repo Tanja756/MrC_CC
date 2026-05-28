@@ -6,16 +6,16 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.google.gson.Gson
 import com.mrc.warehouse.R
-import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.api.TaskItem
 import com.mrc.warehouse.databinding.FragmentTasksBinding
 import com.mrc.warehouse.util.NetworkUtil
 import com.mrc.warehouse.util.SessionManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -56,7 +56,6 @@ class ClosedTasksFragment : Fragment() {
         )
         binding.rvTasks.adapter = adapter
 
-        // Restore saved sort mode, default to deadline
         currentSortMode = session.sortModeClosedTasks
         binding.chipSortDeadline.isChecked = currentSortMode == "deadline"
         binding.chipSortCreation.isChecked = currentSortMode == "creation"
@@ -67,7 +66,6 @@ class ClosedTasksFragment : Fragment() {
         binding.chipSortDeadline.setOnClickListener { setSortMode("deadline") }
         binding.chipSortPriority.setOnClickListener { setSortMode("priority") }
 
-        // Search toggle: show/hide search bar
         binding.btnSearchToggle.setOnClickListener {
             val isVisible = binding.cardSearch.visibility == View.VISIBLE
             binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
@@ -76,7 +74,6 @@ class ClosedTasksFragment : Fragment() {
             }
         }
 
-        // Swipe-to-refresh: force reload from server
         binding.swipeRefresh.setOnRefreshListener {
             refreshFromServer()
         }
@@ -84,7 +81,6 @@ class ClosedTasksFragment : Fragment() {
             androidx.core.content.ContextCompat.getColor(requireContext(), R.color.primary)
         )
 
-        // Search with TextWatcher so clearing the field resets the filter
         binding.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -94,22 +90,28 @@ class ClosedTasksFragment : Fragment() {
         loadTasks()
     }
 
-    /** Pull-to-refresh: force reload from server, ignoring cache comparison */
     private fun refreshFromServer() {
-        CoroutineScope(Dispatchers.IO).launch {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                binding.tvError.visibility = View.GONE
+            }
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {
                         binding.swipeRefresh.isRefreshing = false
-                        binding.tvError.visibility = View.VISIBLE
-                        binding.tvError.text = "Нет соединения с сервером."
+                        if (allTasks.isEmpty()) {
+                            binding.tvError.visibility = View.VISIBLE
+                            binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                        } else {
+                            binding.tvError.visibility = View.GONE
+                        }
                     }
                     return@launch
                 }
 
                 val client = session.createApiClient()
                 val response = client.getClosedTasksUser()
-                val serverTasks = response.tasks ?: emptyList()
+                val serverTasks = response.tasks ?: emptyList<TaskItem>()
 
                 session.cachedTasksClosedJson = Gson().toJson(serverTasks)
                 session.updateSyncTimestamp()
@@ -123,42 +125,60 @@ class ClosedTasksFragment : Fragment() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     binding.swipeRefresh.isRefreshing = false
-                    binding.tvError.visibility = View.VISIBLE
-                    binding.tvError.text = "Ошибка: ${e.message ?: "нет соединения"}. Показаны сохранённые данные."
+                    if (allTasks.isEmpty()) {
+                        binding.tvError.visibility = View.VISIBLE
+                        binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                    } else {
+                        binding.tvError.visibility = View.GONE
+                    }
                 }
             }
         }
     }
 
     private fun loadTasks() {
-        // 1. Immediately show cached data (no waiting)
         val cached = session.getCachedTasksClosed()
         if (cached.isNotEmpty()) {
             allTasks = cached
             updateUiAfterLoad()
+        } else {
+            // Прямое обновление UI — здесь мы в главном потоке, так как loadTasks вызван из onCreateView
+            binding.tvError.visibility = View.VISIBLE
+            binding.tvError.text = "Загрузка данных..."
         }
 
-        // 2. In background, try to fetch fresh data from server
-        CoroutineScope(Dispatchers.IO).launch {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {
-                        binding.tvError.visibility = View.VISIBLE
-                        binding.tvError.text = "Нет соединения с сервером. Показаны сохранённые данные."
+                        if (allTasks.isEmpty()) {
+                            binding.tvError.visibility = View.VISIBLE
+                            binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                        } else {
+                            binding.tvError.visibility = View.GONE
+                        }
                     }
                     return@launch
                 }
 
                 val client = session.createApiClient()
                 val response = client.getClosedTasksUser()
-                val serverTasks = response.tasks ?: emptyList()
+                val serverTasks = response.tasks ?: emptyList<TaskItem>()
                 val serverJson = Gson().toJson(serverTasks)
 
-                // Compare with cached — only update UI if data actually changed
                 val cachedJson = session.cachedTasksClosedJson
-                if (serverJson == cachedJson) return@launch
+                if (serverJson == cachedJson) {
+                    withContext(Dispatchers.Main) {
+                        if (allTasks.isEmpty() && serverTasks.isEmpty()) {
+                            binding.tvError.visibility = View.VISIBLE
+                            binding.tvError.text = "Нет закрытых заявок."
+                        } else {
+                            binding.tvError.visibility = View.GONE
+                        }
+                    }
+                    return@launch
+                }
 
-                // Data changed — update cache and UI
                 session.cachedTasksClosedJson = serverJson
                 session.updateSyncTimestamp()
                 allTasks = serverTasks
@@ -167,16 +187,22 @@ class ClosedTasksFragment : Fragment() {
                     binding.tvError.visibility = View.GONE
                     updateUiAfterLoad()
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    binding.tvError.visibility = View.VISIBLE
-                    binding.tvError.text = "Нет соединения с сервером. Показаны сохранённые данные."
+                    if (allTasks.isEmpty()) {
+                        binding.tvError.visibility = View.VISIBLE
+                        binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                    } else {
+                        binding.tvError.visibility = View.GONE
+                    }
                 }
             }
         }
     }
 
     private fun updateUiAfterLoad() {
+        if (_binding == null) return
+
         val clientsMap = session.clients
             .filter { it.guid != null && it.name != null && it.guid != "00000000-0000-0000-0000-000000000000" }
             .associate { it.guid!! to it.name!! }
@@ -228,7 +254,6 @@ class ClosedTasksFragment : Fragment() {
     private fun sortTasks(tasks: List<TaskItem>, mode: String): List<TaskItem> {
         val sorted = tasks.toMutableList()
         when (mode) {
-            // Closed tasks — newest first, then highest priority
             "creation" -> sorted.sortWith(compareByDescending<TaskItem> { dateToSortKey(it.date) }.thenBy { it.priority ?: 0 })
             "deadline" -> sorted.sortWith(compareByDescending<TaskItem> { dateToSortKey(it.period) }.thenBy { it.priority ?: 0 })
             "priority" -> sorted.sortWith(compareByDescending<TaskItem> { it.priority ?: 0 }.thenByDescending { dateToSortKey(it.period) })
@@ -236,7 +261,6 @@ class ClosedTasksFragment : Fragment() {
         return sorted
     }
 
-    /** Convert "dd.MM.yyyy HH:mm:ss" → "yyyyMMddHHmmss" for correct string-based date sorting */
     private fun dateToSortKey(dateStr: String?): String {
         if (dateStr.isNullOrBlank()) return ""
         return try {
@@ -254,7 +278,7 @@ class ClosedTasksFragment : Fragment() {
         val sb = StringBuilder()
 
         sb.append("📋 <b>Название:</b> ${task.name ?: "—"}\n\n")
-        sb.append("🆔 <b>Номер:</b> ${task.number ?: "—"}\n")
+        sb.append("🔄 <b>Номер:</b> ${task.number ?: "—"}\n")
         sb.append("📊 <b>Статус:</b> ${task.status ?: "—"}\n")
         sb.append("🏢 <b>Подразделение:</b> ${task.nameDepartment ?: "—"}\n")
         sb.append("👤 <b>Клиент:</b> ${session.clients.firstOrNull { it.guid == task.guidClient }?.name ?: task.guidClient ?: "—"}\n")

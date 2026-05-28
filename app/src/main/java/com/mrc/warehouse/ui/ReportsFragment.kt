@@ -6,9 +6,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.mrc.warehouse.R
 import com.mrc.warehouse.util.*
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -22,8 +22,10 @@ class ReportsFragment : Fragment() {
         savedInstanceState: Bundle?
     ): View? {
         val view = inflater.inflate(R.layout.fragment_reports, container, false)
-
-
+        val btnGenerate = view.findViewById<View>(R.id.btnGenerateTestReport)
+        btnGenerate.setOnClickListener {
+            generateTestPdf()
+        }
         return view
     }
 
@@ -57,7 +59,7 @@ class ReportsFragment : Fragment() {
             )
         )
 
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val file = PdfTemplateExporter.exportIncidentReport(
                     context = requireContext(),

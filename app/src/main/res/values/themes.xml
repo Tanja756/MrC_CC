@@ -21,6 +21,7 @@
         <item name="colorSurface">@color/bg_card</item>
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorOnSurfaceVariant">@color/text_primary</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
     </style>
 
 <!-- Solid card style with no transparency -->

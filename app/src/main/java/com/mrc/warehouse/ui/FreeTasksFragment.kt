@@ -9,14 +9,13 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.google.gson.Gson
 import com.mrc.warehouse.R
-import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.api.TaskItem
 import com.mrc.warehouse.databinding.FragmentTasksBinding
 import com.mrc.warehouse.util.NetworkUtil
 import com.mrc.warehouse.util.SessionManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -60,7 +59,6 @@ class FreeTasksFragment : Fragment() {
         )
         binding.rvTasks.adapter = adapter
 
-        // Restore saved sort mode, default to deadline
         currentSortMode = session.sortModeFreeTasks
         binding.chipSortDeadline.isChecked = currentSortMode == "deadline"
         binding.chipSortCreation.isChecked = currentSortMode == "creation"
@@ -71,13 +69,11 @@ class FreeTasksFragment : Fragment() {
         binding.chipSortDeadline.setOnClickListener { setSortMode("deadline") }
         binding.chipSortPriority.setOnClickListener { setSortMode("priority") }
 
-        // Filter toggle: show/hide sort chips
         binding.btnFilterToggle.setOnClickListener {
             val isVisible = binding.cardSort.visibility == View.VISIBLE
             binding.cardSort.visibility = if (isVisible) View.GONE else View.VISIBLE
         }
 
-        // Adapter callbacks for multi-select via long-press menu
         adapter.onEnterSelectMode = {
             isSelectMode = true
             adapter.onSelectionChanged = { updateBulkActionBar() }
@@ -87,7 +83,6 @@ class FreeTasksFragment : Fragment() {
         }
         adapter.onSelectionChanged = { updateBulkActionBar() }
 
-        // Bulk cancel (red X)
         binding.fabBulkCancel.setOnClickListener {
             isSelectMode = false
             adapter.selectable = false
@@ -95,7 +90,6 @@ class FreeTasksFragment : Fragment() {
             binding.fabBulkTake.visibility = View.GONE
         }
 
-        // Bulk take all selected (green check)
         binding.fabBulkTake.setOnClickListener {
             val selected = allTasks.filter { it.guid in adapter.selectedTaskGuids }
             if (selected.isNotEmpty()) {
@@ -103,7 +97,6 @@ class FreeTasksFragment : Fragment() {
             }
         }
 
-        // Search toggle: show/hide search bar
         binding.btnSearchToggle.setOnClickListener {
             val isVisible = binding.cardSearch.visibility == View.VISIBLE
             binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
@@ -112,7 +105,6 @@ class FreeTasksFragment : Fragment() {
             }
         }
 
-        // Swipe-to-refresh: force reload from server
         binding.swipeRefresh.setOnRefreshListener {
             refreshFromServer()
         }
@@ -120,7 +112,6 @@ class FreeTasksFragment : Fragment() {
             androidx.core.content.ContextCompat.getColor(requireContext(), R.color.primary)
         )
 
-        // Search with TextWatcher so clearing the field resets the filter
         binding.etSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {}
@@ -130,22 +121,28 @@ class FreeTasksFragment : Fragment() {
         loadTasks()
     }
 
-    /** Pull-to-refresh: force reload from server, ignoring cache comparison */
     private fun refreshFromServer() {
-        CoroutineScope(Dispatchers.IO).launch {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            withContext(Dispatchers.Main) {
+                binding.tvError.visibility = View.GONE
+            }
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {
                         binding.swipeRefresh.isRefreshing = false
-                        binding.tvError.visibility = View.VISIBLE
-                        binding.tvError.text = "Нет соединения с сервером."
+                        if (allTasks.isEmpty()) {
+                            binding.tvError.visibility = View.VISIBLE
+                            binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                        } else {
+                            binding.tvError.visibility = View.GONE
+                        }
                     }
                     return@launch
                 }
 
                 val client = session.createApiClient()
                 val response = client.getTasksUnallocated()
-                val serverTasks = response.tasks ?: emptyList()
+                val serverTasks = response.tasks ?: emptyList<TaskItem>()
 
                 session.cachedTasksFreeJson = Gson().toJson(serverTasks)
                 session.updateSyncTimestamp()
@@ -159,42 +156,60 @@ class FreeTasksFragment : Fragment() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     binding.swipeRefresh.isRefreshing = false
-                    binding.tvError.visibility = View.VISIBLE
-                    binding.tvError.text = "Ошибка: ${e.message ?: "нет соединения"}. Показаны сохранённые данные."
+                    if (allTasks.isEmpty()) {
+                        binding.tvError.visibility = View.VISIBLE
+                        binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                    } else {
+                        binding.tvError.visibility = View.GONE
+                    }
                 }
             }
         }
     }
 
     private fun loadTasks() {
-        // 1. Immediately show cached data (no waiting)
         val cached = session.getCachedTasksFree()
         if (cached.isNotEmpty()) {
             allTasks = cached
             updateUiAfterLoad()
+        } else {
+            // Здесь мы в главном потоке — можно напрямую менять UI
+            binding.tvError.visibility = View.VISIBLE
+            binding.tvError.text = "Загрузка данных..."
         }
 
-        // 2. In background, try to fetch fresh data from server
-        CoroutineScope(Dispatchers.IO).launch {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {
-                        binding.tvError.visibility = View.VISIBLE
-                        binding.tvError.text = "Нет соединения с сервером. Показаны сохранённые данные."
+                        if (allTasks.isEmpty()) {
+                            binding.tvError.visibility = View.VISIBLE
+                            binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                        } else {
+                            binding.tvError.visibility = View.GONE
+                        }
                     }
                     return@launch
                 }
 
                 val client = session.createApiClient()
                 val response = client.getTasksUnallocated()
-                val serverTasks = response.tasks ?: emptyList()
+                val serverTasks = response.tasks ?: emptyList<TaskItem>()
                 val serverJson = Gson().toJson(serverTasks)
 
-                // Compare with cached — only update UI if data actually changed
                 val cachedJson = session.cachedTasksFreeJson
-                if (serverJson == cachedJson) return@launch
+                if (serverJson == cachedJson) {
+                    withContext(Dispatchers.Main) {
+                        if (allTasks.isEmpty() && serverTasks.isEmpty()) {
+                            binding.tvError.visibility = View.VISIBLE
+                            binding.tvError.text = "Нет свободных заявок."
+                        } else {
+                            binding.tvError.visibility = View.GONE
+                        }
+                    }
+                    return@launch
+                }
 
-                // Data changed — update cache and UI
                 session.cachedTasksFreeJson = serverJson
                 session.updateSyncTimestamp()
                 allTasks = serverTasks
@@ -203,10 +218,14 @@ class FreeTasksFragment : Fragment() {
                     binding.tvError.visibility = View.GONE
                     updateUiAfterLoad()
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
-                    binding.tvError.visibility = View.VISIBLE
-                    binding.tvError.text = "Нет соединения с сервером. Показаны сохранённые данные."
+                    if (allTasks.isEmpty()) {
+                        binding.tvError.visibility = View.VISIBLE
+                        binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                    } else {
+                        binding.tvError.visibility = View.GONE
+                    }
                 }
             }
         }
@@ -229,18 +248,26 @@ class FreeTasksFragment : Fragment() {
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
             onTakeTaskClick = { task -> takeTask(task) }
         )
+        adapter.selectable = isSelectMode
+        if (isSelectMode) {
+            adapter.selectedTaskGuids.clear()
+            adapter.onSelectionChanged = { updateBulkActionBar() }
+            binding.fabBulkCancel.visibility = View.VISIBLE
+            binding.fabBulkTake.visibility = View.VISIBLE
+            updateBulkActionBar()
+        }
         binding.rvTasks.adapter = adapter
         applyFilters()
     }
 
     private fun takeTask(task: TaskItem) {
-        if (isTakingTask) return // prevent double click
+        if (isTakingTask) return
         val ticketNumber = extractTicketNumber(task.name) ?: task.number ?: "?"
         AlertDialog.Builder(requireContext())
             .setTitle("Взять заявку $ticketNumber")
             .setMessage("Взять заявку $ticketNumber в работу?")
             .setPositiveButton("Да") { d, _ ->
-                d.dismiss() // close dialog immediately
+                d.dismiss()
                 executeTakeTask(task, ticketNumber)
             }
             .setNegativeButton("Отмена", null)
@@ -259,69 +286,56 @@ class FreeTasksFragment : Fragment() {
         }
 
         isTakingTask = true
-
         val loadingDialog = AlertDialog.Builder(requireContext())
             .setTitle("Взятие заявки $ticketNumber")
             .setMessage("Выполняется...")
             .setCancelable(false)
             .show()
 
-        CoroutineScope(Dispatchers.IO).launch {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val client = session.createApiClient()
                 val result = client.taskTake(guid)
 
                 withContext(Dispatchers.Main) {
                     loadingDialog.dismiss()
-
                     if (result.error != null) {
                         AlertDialog.Builder(requireContext())
                             .setTitle("Ошибка")
                             .setMessage(result.error)
-                            .setPositiveButton("OK") { _, _ ->
-                                isTakingTask = false
-                            }
+                            .setPositiveButton("OK") { _, _ -> isTakingTask = false }
                             .show()
                         return@withContext
                     }
 
-                    val status = result.status
-                    if (status.equals("Выполнить", ignoreCase = true)) {
-                        // Показываем диалог успеха, но заявка исчезнет только по OK
+                    if (result.status.equals("Выполнить", ignoreCase = true)) {
                         AlertDialog.Builder(requireContext())
                             .setTitle("✅ Заявка взята")
                             .setMessage("Заявка $ticketNumber успешно взята в работу")
                             .setPositiveButton("OK") { _, _ ->
-                                // Удаляем заявку из списка сразу, не дожидаясь сервера
                                 allTasks = allTasks.filter { it.guid != task.guid }
                                 updateUiAfterLoad()
                                 isTakingTask = false
-                                // В фоне обновляем список с сервера
-                                CoroutineScope(Dispatchers.IO).launch {
+                                lifecycleScope.launch(Dispatchers.IO) {
                                     try {
                                         val c = session.createApiClient()
                                         val resp = c.getTasksUnallocated()
-                                        val serverTasks = resp.tasks ?: emptyList()
-                                        session.cachedTasksFreeJson = Gson().toJson(serverTasks)
+                                        session.cachedTasksFreeJson = Gson().toJson(resp.tasks ?: emptyList<TaskItem>())
                                         session.updateSyncTimestamp()
                                         withContext(Dispatchers.Main) {
-                                            allTasks = serverTasks
+                                            allTasks = resp.tasks ?: emptyList()
                                             updateUiAfterLoad()
                                         }
-                                    } catch (_: Exception) { }
+                                    } catch (_: Exception) {}
                                 }
                             }
-                            .setOnDismissListener {
-                                isTakingTask = false
-                            }
+                            .setOnDismissListener { isTakingTask = false }
                             .show()
                     } else {
                         AlertDialog.Builder(requireContext())
                             .setTitle("Результат")
-                            .setMessage("Статус: ${status ?: "не определён"}")
-                            .setPositiveButton("OK") { _, _ ->
-                                isTakingTask = false
-                            }
+                            .setMessage("Статус: ${result.status ?: "не определён"}")
+                            .setPositiveButton("OK") { _, _ -> isTakingTask = false }
                             .show()
                     }
                 }
@@ -329,10 +343,9 @@ class FreeTasksFragment : Fragment() {
                 withContext(Dispatchers.Main) {
                     loadingDialog.dismiss()
                     isTakingTask = false
-                    val message = e.message ?: "Неизвестная ошибка"
                     AlertDialog.Builder(requireContext())
                         .setTitle("Ошибка соединения")
-                        .setMessage("Не удалось выполнить запрос: $message")
+                        .setMessage("Не удалось выполнить запрос: ${e.message}")
                         .setPositiveButton("OK", null)
                         .show()
                 }
@@ -342,7 +355,7 @@ class FreeTasksFragment : Fragment() {
 
     private fun extractTicketNumber(text: String?): String? {
         if (text.isNullOrBlank()) return null
-        val regex = Regex("[А-ЯЁа-яё]{2}-\\d{6}")
+        val regex = Regex("[А-ЯБ-яёЁ]{2}-\\d{6}")
         return regex.find(text)?.value
     }
 
@@ -427,12 +440,14 @@ class FreeTasksFragment : Fragment() {
             .setCancelable(false)
             .show()
 
-        CoroutineScope(Dispatchers.IO).launch {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             var succeeded = 0
             var failed = 0
-            val errors = mutableListOf<String>()
+            val successGuids = mutableListOf<String>()
 
-            for ((index, task) in tasks.withIndex()) {
+            for (pair in tasks.withIndex()) {
+                val index = pair.index
+                val task = pair.value
                 val guid = task.guid
                 if (guid.isNullOrBlank()) {
                     failed++
@@ -443,21 +458,17 @@ class FreeTasksFragment : Fragment() {
                     val result = client.taskTake(guid)
                     if (result.error != null) {
                         failed++
-                        errors.add(result.error)
                     } else if (result.status.equals("Выполнить", ignoreCase = true)) {
                         succeeded++
+                        successGuids.add(guid)
                     } else {
                         failed++
-                        errors.add(result.status ?: "Неизвестная ошибка")
                     }
                 } catch (e: Exception) {
                     failed++
-                    errors.add(e.message ?: "Ошибка соединения")
                 }
-
-                val currentIndex = index + 1
                 withContext(Dispatchers.Main) {
-                    loadingDialog.setMessage("Выполняется... $currentIndex из $total")
+                    loadingDialog.setMessage("Выполняется... ${index + 1} из $total")
                 }
             }
 
@@ -465,17 +476,16 @@ class FreeTasksFragment : Fragment() {
                 loadingDialog.dismiss()
                 isTakingTask = false
 
-                // Exit select mode
+                if (successGuids.isNotEmpty()) {
+                    allTasks = allTasks.filter { it.guid !in successGuids }
+                    updateUiAfterLoad()
+                }
+
                 isSelectMode = false
                 adapter.selectable = false
                 binding.fabBulkCancel.visibility = View.GONE
                 binding.fabBulkTake.visibility = View.GONE
 
-                // Удаляем взятые заявки из списка
-                allTasks = allTasks.filter { it.guid !in tasks.map { t -> t.guid } }
-                updateUiAfterLoad()
-
-                // Показываем итог
                 val resultMsg = if (failed == 0) {
                     "✅ Успешно взято: $succeeded"
                 } else {
@@ -485,19 +495,17 @@ class FreeTasksFragment : Fragment() {
                     .setTitle("Результат")
                     .setMessage(resultMsg)
                     .setPositiveButton("OK") { _, _ ->
-                        // В фоне обновляем список
-                        CoroutineScope(Dispatchers.IO).launch {
+                        lifecycleScope.launch(Dispatchers.IO) {
                             try {
                                 val c = session.createApiClient()
                                 val resp = c.getTasksUnallocated()
-                                val serverTasks = resp.tasks ?: emptyList()
-                                session.cachedTasksFreeJson = Gson().toJson(serverTasks)
+                                session.cachedTasksFreeJson = Gson().toJson(resp.tasks ?: emptyList<TaskItem>())
                                 session.updateSyncTimestamp()
                                 withContext(Dispatchers.Main) {
-                                    allTasks = serverTasks
+                                    allTasks = resp.tasks ?: emptyList()
                                     updateUiAfterLoad()
                                 }
-                            } catch (_: Exception) { }
+                            } catch (_: Exception) {}
                         }
                     }
                     .show()

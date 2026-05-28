@@ -6,17 +6,16 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
-import androidx.fragment.app.Fragment
-import androidx.recyclerview.widget.LinearLayoutManager
 import android.widget.Toast
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
 import com.mrc.warehouse.api.BalanceItem
-import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.api.StorageItem
 import com.mrc.warehouse.databinding.FragmentWarehouseBinding
 import com.mrc.warehouse.util.NetworkUtil
 import com.mrc.warehouse.util.PdfExportHelper
 import com.mrc.warehouse.util.SessionManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -29,7 +28,7 @@ class WarehouseFragment : Fragment() {
     private lateinit var adapter: BalancesAdapter
 
     private var allBalances: List<BalanceItem> = emptyList()
-    private var activeFilter: String? = null // "equipment", "zip", or null
+    private var activeFilter: String? = null
     private var selectedStorage: StorageItem? = null
     private val pdfExportAuthority by lazy { "${requireContext().packageName}.fileprovider" }
 
@@ -46,7 +45,6 @@ class WarehouseFragment : Fragment() {
         adapter = BalancesAdapter(emptyList())
         binding.rvBalances.adapter = adapter
 
-        // Setup storage spinner
         val storages = session.storages
         val storageNames = mutableListOf("-- Не выбран --")
         storageNames.addAll(storages.map { it.name ?: "?" })
@@ -76,7 +74,6 @@ class WarehouseFragment : Fragment() {
             }
         }
 
-        // Search toggle
         binding.btnSearchToggle.setOnClickListener {
             val isVisible = binding.cardSearch.visibility == View.VISIBLE
             binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
@@ -85,17 +82,14 @@ class WarehouseFragment : Fragment() {
             }
         }
 
-        // Filter toggle
         binding.btnFilterToggle.setOnClickListener {
             val isVisible = binding.cardFilters.visibility == View.VISIBLE
             binding.cardFilters.visibility = if (isVisible) View.GONE else View.VISIBLE
         }
 
-        // Search
         binding.etSearch.setOnKeyListener { _, _, _ -> applyFilters(); false }
         binding.etSearch.setOnFocusChangeListener { _, _ -> applyFilters() }
 
-        // Filter buttons
         binding.btnFilterEquipment.setOnClickListener {
             activeFilter = "equipment"
             applyFilters()
@@ -109,19 +103,16 @@ class WarehouseFragment : Fragment() {
             applyFilters()
         }
 
-        // Export PDF
         binding.btnExportPdf.setOnClickListener { exportPdf() }
     }
 
     private fun loadBalances(storage: StorageItem) {
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (NetworkUtil.isOnline(requireContext())) {
-                    // Online: fetch from server
                     val client = session.createApiClient()
                     val balances = client.getBalances(storage.guid ?: "")
 
-                    // Cache per-storage for offline use
                     session.setCachedBalances(storage.guid ?: "", balances)
                     session.updateSyncTimestamp()
 
@@ -159,13 +150,11 @@ class WarehouseFragment : Fragment() {
     private fun applyFilters() {
         var filtered = allBalances.toList()
 
-        // Apply equipment/ZIP filter
         when (activeFilter) {
             "equipment" -> filtered = filtered.filter { !it.seriesName.isNullOrBlank() }
             "zip" -> filtered = filtered.filter { it.seriesName.isNullOrBlank() }
         }
 
-        // Apply search
         val searchText = binding.etSearch.text.toString().lowercase().trim()
         if (searchText.isNotEmpty()) {
             filtered = filtered.filter { item ->
@@ -174,7 +163,6 @@ class WarehouseFragment : Fragment() {
             }
         }
 
-        // Update adapter
         adapter.updateData(filtered)
     }
 

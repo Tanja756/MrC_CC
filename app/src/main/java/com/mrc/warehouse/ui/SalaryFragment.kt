@@ -5,13 +5,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.gson.Gson
-import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.databinding.FragmentSalaryBinding
 import com.mrc.warehouse.util.NetworkUtil
 import com.mrc.warehouse.util.SessionManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -74,16 +73,14 @@ class SalaryFragment : Fragment() {
         val endDay = YearMonth.of(currentYear, currentMonth).lengthOfMonth()
         val endDate = "${currentYear}-${String.format("%02d", currentMonth)}-${endDay}"
 
-        CoroutineScope(Dispatchers.IO).launch {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (NetworkUtil.isOnline(requireContext())) {
-                    // Online: fetch from server
                     val client = session.createApiClient()
                     val response = client.getSalary(startDate, endDate)
                     val data = response.data ?: emptyList()
                     val total = response.totalAmount ?: 0.0
 
-                    // Cache for offline use
                     val cacheMap = mapOf(
                         "data" to data,
                         "total" to total,

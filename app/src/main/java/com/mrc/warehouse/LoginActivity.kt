@@ -2,24 +2,25 @@ package com.mrc.warehouse
 
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.Spinner
-import android.view.ViewGroup
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.gson.Gson
 import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.databinding.ActivityLoginBinding
 import com.mrc.warehouse.util.NetworkUtil
 import com.mrc.warehouse.util.SessionManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import android.widget.TextView
+
 class LoginActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLoginBinding
@@ -57,11 +58,9 @@ class LoginActivity : AppCompatActivity() {
                     showError("Не настроено подключение к серверу. Нажмите ⚙ и укажите сервер, порт и имя базы.")
                     return@setOnClickListener
                 }
-                // Try online first, fall back to offline if network is unavailable
                 if (NetworkUtil.isOnline(this)) {
                     doLogin(username, password)
                 } else {
-                    // Offline: accept stored credentials and go straight to MainActivity
                     proceedToMain()
                 }
             } else {
@@ -77,7 +76,6 @@ class LoginActivity : AppCompatActivity() {
             showSettingsDialog()
         }
 
-        // Show saved session greeting if authenticated
         if (session.isAuthenticated) {
             val savedUser = session.username
             if (savedUser.isNotEmpty()) {
@@ -87,7 +85,6 @@ class LoginActivity : AppCompatActivity() {
             }
         }
 
-        // If server config is missing on first launch, show settings automatically
         if (!session.hasServerConfig) {
             binding.tvSubtitle.post {
                 showSettingsDialog()
@@ -110,8 +107,6 @@ class LoginActivity : AppCompatActivity() {
         binding.etUsername.setText("")
         binding.etPassword.setText("")
         hideError()
-
-        // Also clear the saved session so the user has to re-auth
         session.clear()
     }
 
@@ -124,31 +119,39 @@ class LoginActivity : AppCompatActivity() {
         val etPort = layout.findViewById<EditText>(R.id.etServerPort)
         val etDbName = layout.findViewById<EditText>(R.id.etDbName)
 
-        // Proxy fields
         val spinnerProxyType = layout.findViewById<Spinner>(R.id.spinnerProxyType)
         val etProxyHost = layout.findViewById<EditText>(R.id.etProxyHost)
         val etProxyPort = layout.findViewById<EditText>(R.id.etProxyPort)
         val etProxyUser = layout.findViewById<EditText>(R.id.etProxyUser)
         val etProxyPassword = layout.findViewById<EditText>(R.id.etProxyPassword)
 
-        // Fill server fields
         etHost.setText(session.serverHost)
         etPort.setText(session.serverPort)
         etDbName.setText(session.dbName)
 
-        // Proxy type spinner: 0=Нет, 1=HTTP, 2=SOCKS5
         val proxyTypes = arrayOf("Нет прокси", "HTTP", "SOCKS5")
-        val proxyTypeAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, proxyTypes)
+        // Кастомный адаптер для прокси-спиннера (тёмный текст)
+        val proxyTypeAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, proxyTypes) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@LoginActivity, R.color.text_primary))
+                return view
+            }
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getDropDownView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@LoginActivity, R.color.text_primary))
+                return view
+            }
+        }
+        proxyTypeAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerProxyType.adapter = proxyTypeAdapter
         spinnerProxyType.setSelection(session.proxyType.coerceIn(0, 2))
 
-        // Fill proxy fields
         etProxyHost.setText(session.proxyHost)
         etProxyPort.setText(session.proxyPort)
         etProxyUser.setText(session.proxyUser)
         etProxyPassword.setText(session.proxyPassword)
 
-        // Show/hide proxy fields based on type selection
         fun updateProxyFieldsVisibility() {
             val visible = spinnerProxyType.selectedItemPosition > 0
             etProxyHost.visibility = if (visible) View.VISIBLE else View.GONE
@@ -160,7 +163,7 @@ class LoginActivity : AppCompatActivity() {
             etProxyPassword.visibility = if (visible) View.VISIBLE else View.GONE
             (etProxyPassword.parent.parent as? View)?.visibility = if (visible) View.VISIBLE else View.GONE
         }
-        // Initial visibility
+
         updateProxyFieldsVisibility()
         spinnerProxyType.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -184,10 +187,8 @@ class LoginActivity : AppCompatActivity() {
             hideError()
         }
         builder.setNegativeButton("Отмена", null)
-        // builder.show()
         val dialog = builder.create()
         dialog.setOnShowListener {
-            // Ищем заголовок по разным возможным ID
             val titleView = dialog.findViewById<TextView>(com.google.android.material.R.id.alertTitle)
                 ?: dialog.findViewById<TextView>(android.R.id.title)
             titleView?.setTextColor(ContextCompat.getColor(this, R.color.text_primary))
@@ -204,7 +205,7 @@ class LoginActivity : AppCompatActivity() {
         binding.btnContinue.isEnabled = false
         hideError()
 
-        CoroutineScope(Dispatchers.IO).launch {
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val client = OneSApiClient(
                     username, password, session.baseUrl, session.dbName,
@@ -217,16 +218,13 @@ class LoginActivity : AppCompatActivity() {
                 val result = client.login()
 
                 if (result != null) {
-                    // Save session
                     session.isAuthenticated = true
                     session.username = username
                     session.password = password
                     session.priorities = result.priorities ?: emptyList()
 
-                    // Load clients, storages, products BEFORE navigating
                     loadAdditionalData(client)
 
-                    // Update sync timestamp after successful data load
                     session.updateSyncTimestamp()
 
                     withContext(Dispatchers.Main) {
@@ -245,7 +243,6 @@ class LoginActivity : AppCompatActivity() {
                     }
                 }
             } catch (e: Exception) {
-                // If we have saved credentials and network fails, allow offline access
                 if (session.isAuthenticated &&
                     session.username == username &&
                     session.password == password
@@ -254,7 +251,6 @@ class LoginActivity : AppCompatActivity() {
                         binding.progressBar.visibility = View.GONE
                         binding.btnLogin.isEnabled = true
                         binding.btnContinue.isEnabled = true
-                        // Proceed offline — user already has a valid session
                         proceedToMain()
                     }
                 } else {
@@ -269,19 +265,11 @@ class LoginActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Navigate to MainActivity directly (used for offline access).
-     */
     private fun proceedToMain() {
         startActivity(MainActivity.newIntent(this@LoginActivity))
         finish()
     }
 
-    /**
-     * Loads clients, storages, products into SharedPreferences.
-     * This is a suspend function so the caller can await completion
-     * before navigating to MainActivity.
-     */
     private suspend fun loadAdditionalData(client: OneSApiClient) {
         try {
             val clients = client.getClients()

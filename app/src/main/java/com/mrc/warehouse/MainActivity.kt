@@ -7,13 +7,17 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
+import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.NavigationUI
 import com.google.android.material.bottomnavigation.BottomNavigationView
@@ -22,17 +26,25 @@ import com.mrc.warehouse.ui.TasksSheetFragment
 import com.mrc.warehouse.service.FreeTasksPollingService
 import com.mrc.warehouse.util.NetworkUtil
 import com.mrc.warehouse.util.SessionManager
-import android.widget.TextView
-import android.view.ViewGroup
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var session: SessionManager
 
+    // Ланчер разрешения на уведомления
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { /* granted or not, start service if enabled */ }
+    ) { granted ->
+        // Запускаем сервис только если разрешение получено (на Android 13+)
+        // Если разрешения нет, сервис не запускаем, чтобы избежать SecurityException
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted) {
+            FreeTasksPollingService.start(this)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         // Update toolbar sync status
         updateSyncStatus()
 
-        // Получаем NavController через NavHostFragment (более надёжно, чем findNavController)
+        // Получаем NavController через NavHostFragment
         val navHostFragment = supportFragmentManager
             .findFragmentById(R.id.nav_host_fragment_activity_main) as NavHostFragment
         val navController = navHostFragment.navController
@@ -72,42 +84,43 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        // === Обработка кнопки "Назад" через OnBackPressedDispatcher ===
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val currentDestination = navController.currentDestination
+                if (currentDestination?.id != R.id.navigation_tasks) {
+                    // На любом экране, кроме "Мои заявки" → возвращаемся на "Мои заявки"
+                    navController.popBackStack(R.id.navigation_tasks, false)
+                } else {
+                    // Уже на "Мои заявки" → показываем диалог выхода
+                    val dialog = AlertDialog.Builder(this@MainActivity, R.style.Theme_MrCWarehouse_Dialog)
+                        .setTitle("Выход")
+                        .setMessage("Вы действительно хотите выйти из приложения?")
+                        .setPositiveButton("Да") { _, _ ->
+                            finishAffinity()
+                        }
+                        .setNegativeButton("Нет", null)
+                        .show()
+                    // Цвет заголовка (если не задан в теме)
+                    dialog.setOnShowListener {
+                        val titleView = dialog.findViewById<TextView>(com.google.android.material.R.id.alertTitle)
+                            ?: dialog.findViewById<TextView>(android.R.id.title)
+                        titleView?.setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                    }
+                }
+            }
+        })
+
         // Start or stop background polling based on user preference
         updatePollingService()
     }
 
     override fun onResume() {
         super.onResume()
-        // Re-check authentication — user may have been logged out elsewhere
         updatePollingService()
-        // Refresh sync status display
         updateSyncStatus()
     }
 
-    override fun onBackPressed() {
-        val navHostFragment = supportFragmentManager
-            .findFragmentById(R.id.nav_host_fragment_activity_main) as NavHostFragment
-        val navController = navHostFragment.navController
-
-        // If we're not on "Мои заявки" — pop back to it
-        if (navController.currentDestination?.id != R.id.navigation_tasks) {
-            navController.popBackStack(R.id.navigation_tasks, false)
-        } else {
-            // Already on "Мои заявки" — show exit confirmation
-            AlertDialog.Builder(this, R.style.Theme_MrCWarehouse_Dialog)
-                .setTitle("Выход")
-                .setMessage("Вы действительно хотите выйти из приложения?")
-                .setPositiveButton("Да") { _, _ ->
-                    finishAffinity()
-                }
-                .setNegativeButton("Нет", null)
-                .show()
-        }
-    }
-
-    /**
-     * Shows the last sync timestamp in the toolbar subtitle.
-     */
     private fun updateSyncStatus() {
         val syncDisplay = session.lastSyncDisplay
         if (syncDisplay.isNotEmpty()) {
@@ -131,9 +144,12 @@ class MainActivity : AppCompatActivity() {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                 != PackageManager.PERMISSION_GRANTED
             ) {
+                // Запрашиваем разрешение, сервис запустится в колбэке
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
             }
         }
+        // Разрешение уже есть или Android < 13 — запускаем сразу
         FreeTasksPollingService.start(this)
     }
 
@@ -159,30 +175,49 @@ class MainActivity : AppCompatActivity() {
         val tvStorageLabel = layout.findViewById<android.widget.TextView>(R.id.tvStorageLabel)
         val spinnerStorage = layout.findViewById<android.widget.Spinner>(R.id.spinnerStorage)
 
-
-        // ---- Poll interval spinner: values 1,2,5,10,15,30 minutes ----
+        // ---- Poll interval spinner ----
         val intervalValues = intArrayOf(1, 2, 5, 10, 15, 30)
         val intervalLabels = intervalValues.map { "$it мин" }.toTypedArray()
-        val intervalAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, intervalLabels)
+        val intervalAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, intervalLabels) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                return view
+            }
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getDropDownView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                return view
+            }
+        }
+        intervalAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerPollInterval.adapter = intervalAdapter
         val currentInterval = session.pollIntervalMinutes
         val intervalIdx = intervalValues.indexOfFirst { it >= currentInterval }.coerceAtLeast(0)
         spinnerPollInterval.setSelection(intervalIdx)
 
-
         // ---- Operating hours spinners (0..23) ----
         val hourLabels = Array(24) { i -> String.format("%02d", i) }
-        val hourAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, hourLabels)
+        fun createHourAdapter() = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, hourLabels) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                return view
+            }
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getDropDownView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                return view
+            }
+        }.apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
 
-        spinnerStartHour.adapter = hourAdapter
+        spinnerStartHour.adapter = createHourAdapter()
         spinnerStartHour.setSelection(session.monitoringStartHour.coerceIn(0, 23))
-
-        spinnerEndHour.adapter = hourAdapter
+        spinnerEndHour.adapter = createHourAdapter()
         spinnerEndHour.setSelection(session.monitoringEndHour.coerceIn(0, 23))
 
         // ---- Notifications checkbox ----
         cbNotifications.isChecked = session.notificationsEnabled
-
 
         // ---- Balance monitoring checkbox ----
         cbBalanceMonitoring.isChecked = session.balanceMonitoringEnabled
@@ -196,15 +231,26 @@ class MainActivity : AppCompatActivity() {
         val storages = session.storages
         val storageNames = mutableListOf("-- Не выбран --")
         storageNames.addAll(storages.map { it.name ?: "?" })
-        val storageAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, storageNames)
+        val storageAdapter = object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, storageNames) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                return view
+            }
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getDropDownView(position, convertView, parent)
+                (view as TextView).setTextColor(ContextCompat.getColor(this@MainActivity, R.color.text_primary))
+                return view
+            }
+        }
+        storageAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerStorage.adapter = storageAdapter
 
-        // Restore saved storage selection
         val savedGuid = session.monitoredStorageGuid
         if (savedGuid.isNotEmpty()) {
             val savedIdx = storages.indexOfFirst { it.guid == savedGuid }
             if (savedIdx >= 0) {
-                spinnerStorage.setSelection(savedIdx + 1) // +1 because of "-- Не выбран --"
+                spinnerStorage.setSelection(savedIdx + 1)
             }
         }
 
@@ -227,14 +273,11 @@ class MainActivity : AppCompatActivity() {
                 session.lastBalancesJson = "[]"
             }
 
-            // Restart polling service with new settings
             updatePollingService()
         }
         builder.setNegativeButton("Отмена", null)
-        // builder.show()
         val dialog = builder.create()
         dialog.setOnShowListener {
-            // Ищем заголовок по разным возможным ID
             val titleView = dialog.findViewById<TextView>(com.google.android.material.R.id.alertTitle)
                 ?: dialog.findViewById<TextView>(android.R.id.title)
             titleView?.setTextColor(ContextCompat.getColor(this, R.color.text_primary))

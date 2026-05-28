@@ -1,5 +1,7 @@
 package com.mrc.warehouse.util
 
+import com.mrc.warehouse.api.TaskLocation
+
 import android.content.Context
 import android.content.SharedPreferences
 import com.google.gson.Gson
@@ -267,7 +269,8 @@ class SessionManager(context: Context) {
     /** Helper: parse cached tasks from JSON */
     fun getCachedTasksUser(): List<TaskItem> {
         val type = object : TypeToken<List<TaskItem>>() {}.type
-        return gson.fromJson(cachedTasksUserJson, type)
+        val tasks = gson.fromJson<List<TaskItem>>(cachedTasksUserJson, type)
+        return updateTasksWithLocationStatus(tasks)
     }
 
     fun getCachedTasksFree(): List<TaskItem> {
@@ -278,12 +281,6 @@ class SessionManager(context: Context) {
     fun getCachedTasksClosed(): List<TaskItem> {
         val type = object : TypeToken<List<TaskItem>>() {}.type
         val tasks = gson.fromJson<List<TaskItem>>(cachedTasksClosedJson, type)
-        return updateTasksWithLocationStatus(tasks)
-    }
-
-    fun getCachedTasksUser(): List<TaskItem> {
-        val type = object : TypeToken<List<TaskItem>>() {}.type
-        val tasks = gson.fromJson<List<TaskItem>>(cachedTasksUserJson, type)
         return updateTasksWithLocationStatus(tasks)
     }
 
