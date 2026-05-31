@@ -13,6 +13,7 @@ class TasksPagerFragment : Fragment() {
     private val binding get() = _binding!!
 
     private lateinit var pagerAdapter: TasksPagerAdapter
+    private var currentFragmentCallback: SearchSortCallback? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -29,51 +30,33 @@ class TasksPagerFragment : Fragment() {
         pagerAdapter = TasksPagerAdapter(requireActivity())
         binding.viewPager.adapter = pagerAdapter
 
-        // Restore initial page from saved instance or default to 0
         val initialPage = arguments?.getInt("pageIndex", 0) ?: 0
 
-        // Set up page change callback
         binding.viewPager.registerOnPageChangeCallback(object :
             androidx.viewpager2.widget.ViewPager2.OnPageChangeCallback() {
             override fun onPageSelected(position: Int) {
                 updateUiForPage(position)
+                // Обновляем callback для текущего фрагмента
+                currentFragmentCallback = (pagerAdapter.getFragment(position) as? SearchSortCallback)
             }
         })
 
-        // Left arrow click
-        binding.btnPagePrev.setOnClickListener {
-            val current = binding.viewPager.currentItem
-            if (current > 0) {
-                binding.viewPager.currentItem = current - 1
-            }
+        binding.btnSearchToggle.setOnClickListener {
+            currentFragmentCallback?.onSearchToggle()
         }
 
-        // Right arrow click
-        binding.btnPageNext.setOnClickListener {
-            val current = binding.viewPager.currentItem
-            if (current < TasksPagerAdapter.PAGE_COUNT - 1) {
-                binding.viewPager.currentItem = current + 1
-            }
+        binding.btnFilterToggle.setOnClickListener {
+            currentFragmentCallback?.onSortToggle()
         }
 
-        // Set initial page (must be done after callback registration)
         binding.viewPager.setCurrentItem(initialPage, false)
         updateUiForPage(initialPage)
+        // Устанавливаем callback для начальной страницы
+        currentFragmentCallback = (pagerAdapter.getFragment(initialPage) as? SearchSortCallback)
     }
 
     private fun updateUiForPage(position: Int) {
-        // Update title
         binding.tvPageTitle.text = TasksPagerAdapter.pageTitles[position]
-
-        // Enable/disable arrows at boundaries
-        binding.btnPagePrev.isEnabled = position > 0
-        binding.btnPageNext.isEnabled = position < TasksPagerAdapter.PAGE_COUNT - 1
-
-        // Visual feedback for disabled state
-        val disabledAlpha = 0.3f
-        val enabledAlpha = 1.0f
-        binding.btnPagePrev.alpha = if (position > 0) enabledAlpha else disabledAlpha
-        binding.btnPageNext.alpha = if (position < TasksPagerAdapter.PAGE_COUNT - 1) enabledAlpha else disabledAlpha
     }
 
     override fun onDestroyView() {

@@ -21,7 +21,7 @@
         android:paddingTop="16dp"
         android:paddingBottom="16dp">
 
-        <!-- Title row with icons -->
+        <!-- Title row (only title, buttons are in pager header) -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -30,37 +30,12 @@
 
             <TextView
                 android:id="@+id/tvTitle"
-                android:layout_width="0dp"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
                 android:text="Заявки"
                 android:textColor="@color/text_primary"
                 android:textSize="22sp"
                 android:textStyle="bold" />
-
-            <!-- Search toggle button -->
-            <ImageButton
-                android:id="@+id/btnSearchToggle"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Поиск"
-                android:padding="8dp"
-                android:scaleType="center"
-                android:src="@android:drawable/ic_menu_search"
-                android:tint="@color/primary" />
-
-            <!-- Filter/Sort toggle button -->
-            <ImageButton
-                android:id="@+id/btnFilterToggle"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="?android:attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Сортировка"
-                android:padding="8dp"
-                android:scaleType="center"
-                android:src="@android:drawable/ic_menu_sort_by_size"
-                android:tint="@color/primary" />
 
         </LinearLayout>
 
@@ -77,7 +52,7 @@
             android:textSize="13sp"
             android:visibility="gone" />
 
-        <!-- Sort chips (hidden by default, toggled by btnFilterToggle) -->
+        <!-- Sort chips (hidden by default, toggled by btnFilterToggle in pager) -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardSort"
             android:layout_width="match_parent"
@@ -138,7 +113,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Search bar (hidden by default, toggled by btnSearchToggle) -->
+        <!-- Search bar (hidden by default, toggled by btnSearchToggle in pager) -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/cardSearch"
             android:layout_width="match_parent"
@@ -209,9 +184,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|start"
-        android:layout_marginBottom="180dp"
+        android:layout_marginBottom="40dp"
+        android:contentDescription="@string/cancel_str"
+        android:src="@drawable/common_google_signin_btn_icon_dark"
         android:visibility="gone"
-        android:src="@android:drawable/ic_menu_close_clear_cancel"
         app:backgroundTint="@color/status_error"
         app:elevation="6dp"
         app:fabSize="mini"
@@ -222,9 +198,10 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
-        android:layout_marginBottom="180dp"
+        android:layout_marginBottom="40dp"
+        android:contentDescription="@string/take_str"
+        android:src="@drawable/input_bg"
         android:visibility="gone"
-        android:src="@android:drawable/ic_menu_save"
         app:backgroundTint="@color/button_take"
         app:elevation="6dp"
         app:fabSize="normal"

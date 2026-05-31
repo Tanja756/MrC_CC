@@ -63,8 +63,8 @@
                     android:contentDescription="Предыдущий месяц"
                     android:padding="8dp"
                     android:scaleType="center"
-                    android:src="@android:drawable/ic_media_previous"
-                    android:tint="@color/primary" />
+                    android:src="@drawable/ic_left"
+                     />
 
                 <TextView
                     android:id="@+id/tvMonthName"
@@ -85,8 +85,8 @@
                     android:contentDescription="Следующий месяц"
                     android:padding="8dp"
                     android:scaleType="center"
-                    android:src="@android:drawable/ic_media_next"
-                    android:tint="@color/primary" />
+                    android:src="@drawable/ic_right"
+                     />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
     </LinearLayout>

@@ -1,66 +1,70 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/bg_main"
     android:orientation="vertical">
 
-    <!-- Custom header with navigation arrows and title -->
+    <!-- Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@color/bg_card"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="12dp">
-
-        <!-- Left arrow: previous page -->
-        <ImageButton
-            android:id="@+id/btnPagePrev"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Предыдущая"
-            android:padding="10dp"
-            android:scaleType="center"
-            android:src="@android:drawable/ic_media_previous"
-            android:tint="@color/primary" />
+        android:paddingHorizontal="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp">
 
         <TextView
             android:id="@+id/tvPageTitle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:gravity="center"
-            android:text="Мои заявки"
+            android:text="Заявки"
             android:textColor="@color/text_primary"
-            android:textSize="20sp"
+            android:textSize="22sp"
             android:textStyle="bold" />
 
-        <!-- Right arrow: next page -->
         <ImageButton
-            android:id="@+id/btnPageNext"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Следующая"
-            android:padding="10dp"
-            android:scaleType="center"
-            android:src="@android:drawable/ic_media_next"
-            android:tint="@color/primary" />
+            android:id="@+id/btnSearchToggle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:backgroundTintMode="src_atop"
+            android:src="@android:drawable/ic_menu_search"
+            android:contentDescription="Поиск"
+             />
+
+        <ImageButton
+            android:id="@+id/btnFilterToggle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:backgroundTint="@color/primary"
+            android:backgroundTintMode="src_atop"
+            android:src="@drawable/sort"
+            android:contentDescription="Фильтр"
+             />
 
     </LinearLayout>
 
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:background="@color/divider" />
-
-    <!-- ViewPager2 for swiping -->
     <androidx.viewpager2.widget.ViewPager2
         android:id="@+id/viewPager"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/bg_card"
+        app:tabIndicatorColor="@color/primary"
+        app:tabIndicatorHeight="3dp"
+        app:tabSelectedTextColor="@color/primary"
+        app:tabTextColor="@color/text_secondary" />
 
 </LinearLayout>

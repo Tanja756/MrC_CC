@@ -41,7 +41,7 @@
                 android:padding="8dp"
                 android:scaleType="center"
                 android:src="@android:drawable/ic_menu_search"
-                android:tint="@color/primary" />
+                 />
 
             <ImageButton
                 android:id="@+id/btnFilterToggle"
@@ -51,8 +51,8 @@
                 android:contentDescription="Фильтр"
                 android:padding="8dp"
                 android:scaleType="center"
-                android:src="@android:drawable/ic_menu_sort_by_size"
-                android:tint="@color/primary" />
+                android:src="@drawable/sort"
+                 />
 
             <ImageButton
                 android:id="@+id/btnExportPdf"
@@ -62,8 +62,8 @@
                 android:contentDescription="Экспорт PDF"
                 android:padding="8dp"
                 android:scaleType="center"
-                android:src="@android:drawable/stat_sys_upload"
-                android:tint="@color/primary" />
+                android:src="@drawable/export"
+                 />
         </LinearLayout>
 
         <TextView
@@ -114,8 +114,8 @@
                     android:contentDescription="Обновить остатки"
                     android:padding="10dp"
                     android:scaleType="center"
-                    android:src="@android:drawable/ic_menu_revert"
-                    android:tint="@color/primary" />
+                    android:src="@drawable/refresh"
+                     />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

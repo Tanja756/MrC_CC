@@ -60,8 +60,10 @@
                 android:contentDescription="Меню"
                 android:padding="10dp"
                 android:scaleType="center"
-                android:src="@android:drawable/ic_menu_sort_by_size"
-                android:tint="@color/text_primary" />
+                android:src="@android:drawable/ic_menu_more"
+                android:layout_marginEnd="15dp"
+                android:layout_marginRight="15dp"
+                 />
 
         </LinearLayout>
 

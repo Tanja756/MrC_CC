@@ -94,21 +94,6 @@
 - JDK 11
 - Gradle 7.0+
 
-### Структура проекта
-
-```
-app/
-├── src/main/java/com/mrc/warehouse/
-│   ├── api/           # Модели данных и API клиент
-│   ├── service/       # Сервисы и фоновые задачи
-│   ├── ui/            # Пользовательский интерфейс
-│   ├── util/          # Утилиты и хелперы
-│   └── LoginActivity.kt
-│   └── MainActivity.kt
-├── src/main/res/      # Ресурсы приложения
-└── build.gradle.kts   # Конфигурация сборки
-```
-
 ### Основные зависимости
 - Kotlin 1.6.0+
 - AndroidX

@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class FreeTasksFragment : Fragment() {
+class FreeTasksFragment : Fragment(), SearchSortCallback {
 
     private var _binding: FragmentTasksBinding? = null
     private val binding get() = _binding!!
@@ -32,6 +32,19 @@ class FreeTasksFragment : Fragment() {
     private var isTakingTask = false
     private var isSelectMode = false
 
+    override fun onSearchToggle() {
+        val isVisible = binding.cardSearch.visibility == View.VISIBLE
+        binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
+        if (!isVisible) {
+            binding.etSearch.requestFocus()
+        }
+    }
+
+    override fun onSortToggle() {
+        val isVisible = binding.cardSort.visibility == View.VISIBLE
+        binding.cardSort.visibility = if (isVisible) View.GONE else View.VISIBLE
+    }
+    
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentTasksBinding.inflate(inflater, container, false)
         return binding.root
@@ -55,7 +68,8 @@ class FreeTasksFragment : Fragment() {
             clientsMap = clientsMap,
             priorityMap = priorityMap,
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
-            onTakeTaskClick = { task -> takeTask(task) }
+            onTakeTaskClick = { task -> takeTask(task) },
+            onCardClick = { task -> showFreeTaskDetailDialog(task) }
         )
         binding.rvTasks.adapter = adapter
 
@@ -69,10 +83,6 @@ class FreeTasksFragment : Fragment() {
         binding.chipSortDeadline.setOnClickListener { setSortMode("deadline") }
         binding.chipSortPriority.setOnClickListener { setSortMode("priority") }
 
-        binding.btnFilterToggle.setOnClickListener {
-            val isVisible = binding.cardSort.visibility == View.VISIBLE
-            binding.cardSort.visibility = if (isVisible) View.GONE else View.VISIBLE
-        }
 
         adapter.onEnterSelectMode = {
             isSelectMode = true
@@ -94,14 +104,6 @@ class FreeTasksFragment : Fragment() {
             val selected = allTasks.filter { it.guid in adapter.selectedTaskGuids }
             if (selected.isNotEmpty()) {
                 bulkTakeTasks(selected)
-            }
-        }
-
-        binding.btnSearchToggle.setOnClickListener {
-            val isVisible = binding.cardSearch.visibility == View.VISIBLE
-            binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
-            if (!isVisible) {
-                binding.etSearch.requestFocus()
             }
         }
 
@@ -246,7 +248,8 @@ class FreeTasksFragment : Fragment() {
             clientsMap = clientsMap,
             priorityMap = priorityMap,
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
-            onTakeTaskClick = { task -> takeTask(task) }
+            onTakeTaskClick = { task -> takeTask(task) },
+            onCardClick = { task -> showFreeTaskDetailDialog(task) }
         )
         adapter.selectable = isSelectMode
         if (isSelectMode) {
@@ -421,6 +424,15 @@ class FreeTasksFragment : Fragment() {
             .setView(tv)
             .setPositiveButton("Закрыть", null)
             .show()
+    }
+
+    private fun showFreeTaskDetailDialog(task: TaskItem) {
+        val dialog = TaskDetailDialogFragment.newInstance(
+            task = task,
+            mode = TaskDetailDialogFragment.DialogMode.FREE_TASK,
+            onTakeTask = { t -> takeTask(t) }
+        )
+        dialog.show(parentFragmentManager, "TaskDetailDialog")
     }
 
     private fun updateBulkActionBar() {

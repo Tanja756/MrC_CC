@@ -66,8 +66,10 @@ data class TaskItem(
     val guidClient: String? = null,
     @SerializedName("hasAttachments")
     val hasAttachments: Boolean? = null,
+    @SerializedName("closeComment")
+    val closeComment: String? = null,
     
-    // Поле для локального использования - не отправляется на сервер
+    // Поля для локального использования - не отправляются на сервер
     @Transient
     var hasLocation: Boolean = false
 )

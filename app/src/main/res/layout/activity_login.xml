@@ -220,14 +220,14 @@
         android:layout_height="wrap_content"
         android:layout_margin="20dp"
         android:clickable="true"
-        android:contentDescription="Настройки"
+        android:contentDescription="@null"
         android:focusable="true"
-        android:src="@android:drawable/ic_menu_manage"
-        app:backgroundTint="@color/bg_card"
+        android:src="@android:drawable/ic_menu_preferences"
+        app:backgroundTint="@color/primary"
         app:elevation="4dp"
         app:fabSize="mini"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        app:tint="@color/primary" />
+         />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

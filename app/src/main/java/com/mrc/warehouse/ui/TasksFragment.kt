@@ -15,7 +15,6 @@ import androidx.fragment.app.Fragment
 import com.google.gson.Gson
 import com.mrc.warehouse.R
 import com.mrc.warehouse.api.AttachmentData
-import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.api.TaskCloseRequest
 import com.mrc.warehouse.api.TaskItem
 import com.mrc.warehouse.databinding.DialogTaskCloseBinding
@@ -34,7 +33,7 @@ import com.google.android.gms.location.LocationServices
 import android.annotation.SuppressLint
 
 
-class TasksFragment : Fragment() {
+class TasksFragment : Fragment(), SearchSortCallback {
 
     private var _binding: FragmentTasksBinding? = null
     private val binding get() = _binding!!
@@ -57,6 +56,19 @@ class TasksFragment : Fragment() {
     private var currentLatitude: Double = 0.0
     private var currentLongitude: Double = 0.0
 
+    override fun onSearchToggle() {
+        val isVisible = binding.cardSearch.visibility == View.VISIBLE
+        binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
+        if (!isVisible) {
+            binding.etSearch.requestFocus()
+        }
+    }
+
+    override fun onSortToggle() {
+        val isVisible = binding.cardSort.visibility == View.VISIBLE
+        binding.cardSort.visibility = if (isVisible) View.GONE else View.VISIBLE
+    }
+
     private fun hasLocationPermission(): Boolean {
         return ActivityCompat.checkSelfPermission(
             requireContext(), Manifest.permission.ACCESS_FINE_LOCATION
@@ -65,6 +77,7 @@ class TasksFragment : Fragment() {
             requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
     }    // Лаунчер для запроса геолокации
+
     private val locationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
@@ -189,7 +202,8 @@ class TasksFragment : Fragment() {
             clientsMap = clientsMap,
             priorityMap = priorityMap,
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
-            onCompleteTaskClick = { task -> completeTask(task) }
+            onCompleteTaskClick = { task -> completeTask(task) },
+            onCardClick = { task -> showUserTaskDetailDialog(task) }
         )
         binding.rvTasks.adapter = adapter
 
@@ -203,21 +217,6 @@ class TasksFragment : Fragment() {
         binding.chipSortCreation.setOnClickListener { setSortMode("creation") }
         binding.chipSortDeadline.setOnClickListener { setSortMode("deadline") }
         binding.chipSortPriority.setOnClickListener { setSortMode("priority") }
-
-        // Filter toggle: show/hide sort chips (like warehouse)
-        binding.btnFilterToggle.setOnClickListener {
-            val isVisible = binding.cardSort.visibility == View.VISIBLE
-            binding.cardSort.visibility = if (isVisible) View.GONE else View.VISIBLE
-        }
-
-        // Search toggle: show/hide search bar
-        binding.btnSearchToggle.setOnClickListener {
-            val isVisible = binding.cardSearch.visibility == View.VISIBLE
-            binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
-            if (!isVisible) {
-                binding.etSearch.requestFocus()
-            }
-        }
 
         // Swipe-to-refresh: force reload from server
         binding.swipeRefresh.setOnRefreshListener {
@@ -345,7 +344,8 @@ class TasksFragment : Fragment() {
             clientsMap = clientsMap,
             priorityMap = priorityMap,
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
-            onCompleteTaskClick = { task -> completeTask(task) }
+            onCompleteTaskClick = { task -> completeTask(task) },
+            onCardClick = { task -> showUserTaskDetailDialog(task) }
         )
         binding.rvTasks.adapter = adapter
         applyFilters()
@@ -663,6 +663,20 @@ class TasksFragment : Fragment() {
                 null
             }
         }
+    }
+
+    // ========================== Detail dialog (user task) ==========================
+
+    private fun showUserTaskDetailDialog(task: TaskItem) {
+        val dialog = TaskDetailDialogFragment.newInstance(
+            task = task,
+            mode = TaskDetailDialogFragment.DialogMode.USER_TASK,
+            onTaskClosed = {
+                // После закрытия заявки перезагружаем список
+                loadTasks()
+            }
+        )
+        dialog.show(parentFragmentManager, "TaskDetailDialog")
     }
 
     // ========================== Description dialog ==========================

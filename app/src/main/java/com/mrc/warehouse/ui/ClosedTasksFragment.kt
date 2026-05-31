@@ -20,7 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class ClosedTasksFragment : Fragment() {
+class ClosedTasksFragment : Fragment(), SearchSortCallback {
 
     private var _binding: FragmentTasksBinding? = null
     private val binding get() = _binding!!
@@ -30,6 +30,19 @@ class ClosedTasksFragment : Fragment() {
     private var allTasks: List<TaskItem> = emptyList()
     private var currentSortMode = "deadline"
 
+    override fun onSearchToggle() {
+        val isVisible = binding.cardSearch.visibility == View.VISIBLE
+        binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
+        if (!isVisible) {
+            binding.etSearch.requestFocus()
+        }
+    }
+
+    override fun onSortToggle() {
+        val isVisible = binding.cardSort.visibility == View.VISIBLE
+        binding.cardSort.visibility = if (isVisible) View.GONE else View.VISIBLE
+    }
+    
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentTasksBinding.inflate(inflater, container, false)
         return binding.root
@@ -52,7 +65,8 @@ class ClosedTasksFragment : Fragment() {
             tasks = emptyList(),
             clientsMap = clientsMap,
             priorityMap = priorityMap,
-            onViewTaskClick = { task -> showViewTaskDialog(task) }
+            onViewTaskClick = { task -> showViewTaskDialog(task) },
+            onCardClick = { task -> showViewTaskDialog(task) }
         )
         binding.rvTasks.adapter = adapter
 
@@ -65,14 +79,6 @@ class ClosedTasksFragment : Fragment() {
         binding.chipSortCreation.setOnClickListener { setSortMode("creation") }
         binding.chipSortDeadline.setOnClickListener { setSortMode("deadline") }
         binding.chipSortPriority.setOnClickListener { setSortMode("priority") }
-
-        binding.btnSearchToggle.setOnClickListener {
-            val isVisible = binding.cardSearch.visibility == View.VISIBLE
-            binding.cardSearch.visibility = if (isVisible) View.GONE else View.VISIBLE
-            if (!isVisible) {
-                binding.etSearch.requestFocus()
-            }
-        }
 
         binding.swipeRefresh.setOnRefreshListener {
             refreshFromServer()
@@ -113,9 +119,13 @@ class ClosedTasksFragment : Fragment() {
                 val response = client.getClosedTasksUser()
                 val serverTasks = response.tasks ?: emptyList<TaskItem>()
 
+                // Сохраняем в кэш
                 session.cachedTasksClosedJson = Gson().toJson(serverTasks)
                 session.updateSyncTimestamp()
-                allTasks = serverTasks
+                
+                // Загружаем обратно через getCachedTasksClosed, чтобы применилась
+                // информация о локально сохранённых местоположениях (hasLocation)
+                allTasks = session.getCachedTasksClosed()
 
                 withContext(Dispatchers.Main) {
                     binding.tvError.visibility = View.GONE
@@ -179,9 +189,13 @@ class ClosedTasksFragment : Fragment() {
                     return@launch
                 }
 
+                // Сохраняем в кэш
                 session.cachedTasksClosedJson = serverJson
                 session.updateSyncTimestamp()
-                allTasks = serverTasks
+                
+                // Загружаем обратно через getCachedTasksClosed, чтобы применилась
+                // информация о локально сохранённых местоположениях (hasLocation)
+                allTasks = session.getCachedTasksClosed()
 
                 withContext(Dispatchers.Main) {
                     binding.tvError.visibility = View.GONE
@@ -214,7 +228,8 @@ class ClosedTasksFragment : Fragment() {
             tasks = allTasks,
             clientsMap = clientsMap,
             priorityMap = priorityMap,
-            onViewTaskClick = { task -> showViewTaskDialog(task) }
+            onViewTaskClick = { task -> showViewTaskDialog(task) },
+            onCardClick = { task -> showViewTaskDialog(task) }
         )
         binding.rvTasks.adapter = adapter
         applyFilters()
@@ -274,36 +289,11 @@ class ClosedTasksFragment : Fragment() {
     }
 
     private fun showViewTaskDialog(task: TaskItem) {
-        val ctx = requireContext()
-        val sb = StringBuilder()
-
-        sb.append("📋 <b>Название:</b> ${task.name ?: "—"}\n\n")
-        sb.append("🔄 <b>Номер:</b> ${task.number ?: "—"}\n")
-        sb.append("📊 <b>Статус:</b> ${task.status ?: "—"}\n")
-        sb.append("🏢 <b>Подразделение:</b> ${task.nameDepartment ?: "—"}\n")
-        sb.append("👤 <b>Клиент:</b> ${session.clients.firstOrNull { it.guid == task.guidClient }?.name ?: task.guidClient ?: "—"}\n")
-        sb.append("👤 <b>Исполнитель:</b> ${task.user ?: "—"}\n")
-        sb.append("📅 <b>Дата создания:</b> ${TasksAdapter.formatDate(task.date)}\n")
-        sb.append("⏰ <b>Срок:</b> ${TasksAdapter.formatDate(task.period)}\n")
-        sb.append("🔢 <b>Приоритет:</b> ${session.priorities.firstOrNull { it.value == task.priority }?.name ?: task.priority?.toString() ?: "—"}\n")
-        if (task.hasAttachments == true) {
-            sb.append("\n📎 <b>Вложения:</b> есть\n")
-        }
-
-        val description = task.description
-        if (!description.isNullOrBlank()) {
-            sb.append("\n\n📄 <b>Описание:</b>\n$description")
-        }
-
-        AlertDialog.Builder(ctx)
-            .setTitle("👁 Просмотр заявки")
-            .setMessage(sb.toString().trim())
-            .setPositiveButton("Закрыть", null)
-            .setNeutralButton("📋 Копировать") { _, _ ->
-                val clipboard = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("task", sb.toString().trim()))
-            }
-            .show()
+        val dialog = TaskDetailDialogFragment.newInstance(
+            task = task,
+            mode = TaskDetailDialogFragment.DialogMode.CLOSED_TASK
+        )
+        dialog.show(parentFragmentManager, "TaskDetailDialog")
     }
 
     override fun onDestroyView() {

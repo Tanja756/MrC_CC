@@ -225,6 +225,14 @@ class FreeTasksPollingService : Service() {
         try {
             val response = client.getTasksUser()
             val tasks = response.tasks ?: emptyList()
+
+            // Сохраняем данные задач пользователя в кэш только если данные не пустые,
+            // чтобы пустой ответ из-за временной ошибки не затёр существующий кэш
+            if (tasks.isNotEmpty()) {
+                session.cachedTasksUserJson = Gson().toJson(tasks)
+                session.updateSyncTimestamp()
+            }
+
             val now = Calendar.getInstance()
 
             for (task in tasks) {
@@ -295,7 +303,14 @@ class FreeTasksPollingService : Service() {
         val currentTasks = response.tasks ?: emptyList()
         val currentGuids = currentTasks.mapNotNull { it.guid }.toSet()
 
-        // Find new GUIDs
+        // Сохраняем данные свободных заявок в кэш только если ответ не пустой,
+        // чтобы пустой ответ из-за временной ошибки не затёр существующий кэш
+        if (currentTasks.isNotEmpty()) {
+            session.cachedTasksFreeJson = Gson().toJson(currentTasks)
+            session.updateSyncTimestamp()
+        }
+
+        // Находим новые GUID
         val newGuids = currentGuids - knownTaskGuids
         if (newGuids.isNotEmpty()) {
             val newTasks = currentTasks.filter { it.guid in newGuids }
@@ -306,7 +321,7 @@ class FreeTasksPollingService : Service() {
             saveKnownGuids()
         }
 
-        // Remove GUIDs that no longer exist (tasks taken by others)
+        // Удаляем GUID, которых больше нет (задачи взяты другими)
         knownTaskGuids.retainAll(currentGuids)
         saveKnownGuids()
     }
@@ -318,7 +333,7 @@ class FreeTasksPollingService : Service() {
             .filter { it.productName != null }
             .associate { Pair(it.productName!!, it.balance ?: 0) }
 
-        // Load previous balances from saved state
+        // Загружаем предыдущие остатки из сохранённого состояния
         val prevJson = session.lastBalancesJson
         val type = object : TypeToken<List<BalanceItem>>() {}.type
         val prevBalances: List<BalanceItem> = try {
@@ -328,8 +343,8 @@ class FreeTasksPollingService : Service() {
             .filter { it.productName != null }
             .associate { Pair(it.productName!!, it.balance ?: 0) }
 
-        // Find decreases (spisano) and increases (added)
-        val decreasedItems = mutableListOf<Pair<String, Int>>() // productName -> difference
+        // Находим уменьшения (списано) и увеличения (добавлено)
+        val decreasedItems = mutableListOf<Pair<String, Int>>() // productName -> разница
         val increasedItems = mutableListOf<Pair<String, Int>>()
 
         for ((productName, currentQty) in currentBalanceMap) {
@@ -341,67 +356,61 @@ class FreeTasksPollingService : Service() {
             }
         }
 
-        // Also check for items that disappeared from the list
+        // Проверяем товары, которые исчезли из списка
         for ((productName, prevQty) in prevBalanceMap) {
             if (!currentBalanceMap.containsKey(productName) && prevQty > 0) {
                 decreasedItems.add(productName to prevQty)
             }
         }
 
-        // Send notifications for decreases (spisano)
+        // Сохраняем текущие остатки для следующего сравнения
+        // ДЕЛАЕМ ЭТО ДО УВЕДОМЛЕНИЙ, чтобы не потерять данные при ошибке в уведомлении
+        if (currentBalances.isNotEmpty()) {
+            session.lastBalancesJson = gson.toJson(currentBalances)
+        }
+
+        val storageName = session.monitoredStorageName.ifBlank { session.monitoredStorageGuid }
+
+        // Отправляем уведомления о списании
         if (decreasedItems.isNotEmpty()) {
-            val storageName = session.monitoredStorageName.ifBlank { session.monitoredStorageGuid }
             val title = "Списание со склада «$storageName»"
 
             if (decreasedItems.size == 1) {
                 val (name, qty) = decreasedItems[0]
                 val msg = "Списано: $name — $qty шт"
-                notifyBalanceChange(title, msg, null)
+                notifyBalanceChange(title, msg, null, NOTIFICATION_ID_DECREASE)
             } else {
-                // Group multiple items into one notification
                 val lines = decreasedItems.joinToString("\n") { (name, qty) ->
                     "• $name — $qty шт"
                 }
-                notifyBalanceChange(title, "Списано ${decreasedItems.size} позиций", lines)
+                notifyBalanceChange(title, "Списано ${decreasedItems.size} позиций", lines, NOTIFICATION_ID_DECREASE)
             }
         }
 
-        // Save current balances for next diff
-        session.lastBalancesJson = gson.toJson(currentBalances)
-
-        // Also notify about increases if significant
+        // Отправляем уведомления об увеличении (все увеличения, не только новые товары)
         if (increasedItems.isNotEmpty()) {
-            val storageName = session.monitoredStorageName.ifBlank { session.monitoredStorageGuid }
             val title = "Поступление на склад «$storageName»"
 
-            // Only show increase notification if the item wasn't previously at 0
-            val newItems = increasedItems.filter { (name, _) ->
-                val prevQty = prevBalanceMap[name] ?: 0
-                prevQty == 0
-            }
-
-            if (newItems.isNotEmpty()) {
-                if (newItems.size == 1) {
-                    val (name, qty) = newItems[0]
-                    val msg = "Добавлено: $name — $qty шт"
-                    notifyBalanceChange(title, msg, null)
-                } else {
-                    val lines = newItems.joinToString("\n") { (name, qty) ->
-                        "• $name — $qty шт"
-                    }
-                    notifyBalanceChange(title, "Новых позиций: ${newItems.size}", lines)
+            if (increasedItems.size == 1) {
+                val (name, qty) = increasedItems[0]
+                val msg = "Поступило: $name +$qty шт"
+                notifyBalanceChange(title, msg, null, NOTIFICATION_ID_INCREASE)
+            } else {
+                val lines = increasedItems.joinToString("\n") { (name, qty) ->
+                    "• $name +$qty шт"
                 }
+                notifyBalanceChange(title, "Поступило ${increasedItems.size} позиций", lines, NOTIFICATION_ID_INCREASE)
             }
         }
     }
 
-    private fun notifyBalanceChange(title: String, summary: String, bigText: String?) {
+    private fun notifyBalanceChange(title: String, summary: String, bigText: String?, notificationId: Int) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra("navigate_to", "warehouse")
         }
         val pendingIntent = PendingIntent.getActivity(
-            this, BALANCE_NOTIFICATION_ID, intent,
+            this, notificationId, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -418,7 +427,7 @@ class FreeTasksPollingService : Service() {
         }
 
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(BALANCE_NOTIFICATION_ID, builder.build())
+        nm.notify(notificationId, builder.build())
     }
 
     private fun notifyNewTask(task: com.mrc.warehouse.api.TaskItem) {
@@ -515,6 +524,8 @@ class FreeTasksPollingService : Service() {
         private const val CHANNEL_ID = "free_tasks_polling"
         private const val NOTIFICATION_ID = 1001
         private const val BALANCE_NOTIFICATION_ID = 1002
+        private const val NOTIFICATION_ID_DECREASE = 1002
+        private const val NOTIFICATION_ID_INCREASE = 1003
         private const val POLL_INTERVAL_MS = 60_000L // 1 minute default
         private const val ACTION_STOP = "com.mrc.warehouse.STOP_POLLING"
         private const val KEY_KNOWN_GUIDS = "known_free_task_guids"

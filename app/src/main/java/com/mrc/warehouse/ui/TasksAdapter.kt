@@ -20,7 +20,8 @@ class TasksAdapter(
     private val onDescriptionClick: (String?) -> Unit = {},
     private val onTakeTaskClick: ((TaskItem) -> Unit)? = null,
     private val onCompleteTaskClick: ((TaskItem) -> Unit)? = null,
-    private val onViewTaskClick: ((TaskItem) -> Unit)? = null
+    private val onViewTaskClick: ((TaskItem) -> Unit)? = null,
+    private val onCardClick: ((TaskItem) -> Unit)? = null
 ) : RecyclerView.Adapter<TasksAdapter.TaskViewHolder>() {
 
     // Multi-select mode
@@ -97,7 +98,11 @@ class TasksAdapter(
                 }
             } else {
                 binding.cbTaskSelect.visibility = View.GONE
-                binding.root.setOnClickListener(null)
+                if (onCardClick != null) {
+                    binding.root.setOnClickListener { onCardClick(task) }
+                } else {
+                    binding.root.setOnClickListener(null)
+                }
             }
 
             // Dates with time
@@ -209,7 +214,7 @@ class TasksAdapter(
                     ContextCompat.getColor(binding.root.context, R.color.status_success)
                 )
             } else if (onViewTaskClick != null) {
-                binding.ivLocationIndicator.visibility = View.VISIBLE
+                binding.ivLocationIndicator.visibility = View.GONE
                 binding.ivLocationIndicator.setColorFilter(
                     ContextCompat.getColor(binding.root.context, R.color.status_error)
                 )
