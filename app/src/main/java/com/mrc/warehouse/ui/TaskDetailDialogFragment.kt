@@ -29,6 +29,7 @@ import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import android.annotation.SuppressLint
+import androidx.fragment.app.DialogFragment
 
 /**
  * BottomSheetDialogFragment для просмотра и управления заявкой.
@@ -38,7 +39,7 @@ import android.annotation.SuppressLint
  * - USER_TASK: моя заявка (вложение, PDF → Закрыть заявку, Копировать, Назад)
  * - CLOSED_TASK: закрытая заявка (кнопки: Копировать, Назад)
  */
-class TaskDetailDialogFragment : BottomSheetDialogFragment() {
+class TaskDetailDialogFragment : DialogFragment() {
 
     private var _binding: DialogTaskDetailBinding? = null
     private val binding get() = _binding!!
