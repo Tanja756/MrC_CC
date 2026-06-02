@@ -171,6 +171,11 @@ class SessionManager(context: Context) {
         get() = prefs.getLong(KEY_LAST_SYNC_TS, 0L)
         set(value) { prefs.edit().putLong(KEY_LAST_SYNC_TS, value).commit() }
 
+    /** Timestamp (epoch millis) of last successful references sync (storages, clients, products) */
+    var lastReferencesSyncTimestamp: Long
+        get() = prefs.getLong(KEY_LAST_REFERENCES_SYNC_TS, 0L)
+        set(value) { prefs.edit().putLong(KEY_LAST_REFERENCES_SYNC_TS, value).commit() }
+
     /** Formatted date-time string of last sync (for display) */
     var lastSyncDisplay: String
         get() = prefs.getString(KEY_LAST_SYNC_DISPLAY, "") ?: ""
@@ -326,6 +331,12 @@ class SessionManager(context: Context) {
         lastSyncDisplay = formatTimestamp(now)
     }
 
+    /** Helper: update references sync timestamp to now */
+    fun updateReferencesSyncTimestamp() {
+        val now = System.currentTimeMillis()
+        lastReferencesSyncTimestamp = now
+    }
+
     private fun formatTimestamp(millis: Long): String {
         val sdf = java.text.SimpleDateFormat("dd.MM.yy HH:mm", java.util.Locale("ru"))
         return sdf.format(java.util.Date(millis))
@@ -336,6 +347,12 @@ class SessionManager(context: Context) {
     }
 
     companion object {
+        /** Минимальный интервал между автоматическими запросами (60 секунд) */
+        const val MIN_SYNC_INTERVAL_MS = 60_000L
+
+        /** Интервал для справочных данных (склады, клиенты, товары) – 20 минут */
+        const val MIN_REFERENCES_SYNC_INTERVAL_MS = 1_200_000L
+
         private const val KEY_AUTH = "is_authenticated"
         private const val KEY_USERNAME = "username"
         private const val KEY_PASSWORD = "password"
@@ -366,6 +383,7 @@ class SessionManager(context: Context) {
 
         // Offline cache keys
         private const val KEY_LAST_SYNC_TS = "last_sync_timestamp"
+        private const val KEY_LAST_REFERENCES_SYNC_TS = "last_references_sync_timestamp"
         private const val KEY_LAST_SYNC_DISPLAY = "last_sync_display"
         private const val KEY_CACHED_TASKS_USER = "cached_tasks_user"
         private const val KEY_CACHED_TASKS_FREE = "cached_tasks_free"

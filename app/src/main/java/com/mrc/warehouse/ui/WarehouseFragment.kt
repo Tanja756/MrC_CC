@@ -70,7 +70,7 @@ class WarehouseFragment : Fragment() {
             val pos = binding.spinnerStorage.selectedItemPosition
             if (pos > 0) {
                 selectedStorage = storages[pos - 1]
-                loadBalances(selectedStorage!!)
+                loadBalances(selectedStorage!!, force = true)
             }
         }
 
@@ -106,8 +106,22 @@ class WarehouseFragment : Fragment() {
         binding.btnExportPdf.setOnClickListener { exportPdf() }
     }
 
-    private fun loadBalances(storage: StorageItem) {
+    /**
+     * Загрузка остатков с сервера или из кэша.
+     * @param force если true, игнорирует интервал синхронизации (принудительное обновление)
+     */
+    private fun loadBalances(storage: StorageItem, force: Boolean = false) {
         lifecycleScope.launch(Dispatchers.IO) {
+            // Если синхронизация была недавно – используем кэш (кроме принудительного обновления)
+            if (!force) {
+                val now = System.currentTimeMillis()
+                val shouldSkip = (now - session.lastSyncTimestamp) < SessionManager.MIN_SYNC_INTERVAL_MS
+                if (shouldSkip) {
+                    loadCachedBalances(storage)
+                    return@launch
+                }
+            }
+
             try {
                 if (NetworkUtil.isOnline(requireContext())) {
                     val client = session.createApiClient()

@@ -338,6 +338,7 @@ class TaskDetailDialogFragment : DialogFragment() {
 
                 withContext(Dispatchers.Main) {
                     loadingDialog.dismiss()
+                    if (!isAdded) return@withContext
                     if (success) {
                         AlertDialog.Builder(requireContext())
                             .setTitle("✅ Заявка отправлена")
@@ -353,6 +354,7 @@ class TaskDetailDialogFragment : DialogFragment() {
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     loadingDialog.dismiss()
+                    if (!isAdded) return@withContext
                     showError("Ошибка", "Не удалось отправить заявку: ${e.message}")
                 }
             }

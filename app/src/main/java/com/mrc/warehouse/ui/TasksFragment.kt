@@ -278,7 +278,11 @@ class TasksFragment : Fragment(), SearchSortCallback {
         }
     }
 
-    private fun loadTasks() {
+    /**
+     * Загрузка задач с кэша и фоновым обновлением с сервера.
+     * @param force если true, игнорирует интервал синхронизации (принудительное обновление)
+     */
+    private fun loadTasks(force: Boolean = false) {
         // 1. Immediately show cached data (no waiting)
         val cached = session.getCachedTasksUser()
         if (cached.isNotEmpty()) {
@@ -289,6 +293,20 @@ class TasksFragment : Fragment(), SearchSortCallback {
 
         // 2. In background, try to fetch fresh data from server
         CoroutineScope(Dispatchers.IO).launch {
+            // Пропускаем запрос, если данные обновлялись недавно (кроме принудительного обновления)
+            if (!force) {
+                val now = System.currentTimeMillis()
+                val shouldSkip = (now - session.lastSyncTimestamp) < SessionManager.MIN_SYNC_INTERVAL_MS
+                if (shouldSkip) {
+                    withContext(Dispatchers.Main) {
+                        if (_binding == null) return@withContext
+                        binding.tvError.visibility = if (allTasks.isEmpty()) View.VISIBLE else View.GONE
+                        if (allTasks.isEmpty()) binding.tvError.text = "Нет соединения или данные устарели"
+                    }
+                    return@launch
+                }
+            }
+
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {

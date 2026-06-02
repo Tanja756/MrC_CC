@@ -146,7 +146,7 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
         }
     }
 
-    private fun loadTasks() {
+    private fun loadTasks(force: Boolean = false) {
         val cached = session.getCachedTasksClosed()
         if (cached.isNotEmpty()) {
             allTasks = cached
@@ -158,6 +158,23 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
         }
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            // Пропускаем запрос, если данные обновлялись недавно (кроме принудительного обновления)
+            if (!force) {
+                val now = System.currentTimeMillis()
+                val shouldSkip = (now - session.lastSyncTimestamp) < SessionManager.MIN_SYNC_INTERVAL_MS
+                if (shouldSkip) {
+                    withContext(Dispatchers.Main) {
+                        if (allTasks.isEmpty()) {
+                            binding.tvError.visibility = View.VISIBLE
+                            binding.tvError.text = "Нет соединения или данные устарели"
+                        } else {
+                            binding.tvError.visibility = View.GONE
+                        }
+                    }
+                    return@launch
+                }
+            }
+
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {
