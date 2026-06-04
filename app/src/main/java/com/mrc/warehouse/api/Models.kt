@@ -68,7 +68,7 @@ data class TaskItem(
     val hasAttachments: Boolean? = null,
     @SerializedName("closeComment")
     val closeComment: String? = null,
-    
+
     // Поля для локального использования - не отправляются на сервер
     @Transient
     var hasLocation: Boolean = false
@@ -141,4 +141,52 @@ data class StorageMovement(
 /** Generic error response */
 data class ErrorResponse(
     val error: String? = null
+)
+
+// ===================== PPR models =====================
+
+/** PPR task item (from ppr_list response) */
+data class PprTaskItem(
+    val guid: String? = null,
+    val number: String? = null,
+    val name: String? = null,
+    val status: String? = null,
+    val date: String? = null,
+    val priority: Int? = null,
+    @SerializedName("name_department")
+    val nameDepartment: String? = null,
+    val description: String? = null,
+    @SerializedName("close_comment")
+    val closeComment: String? = null,
+    val period: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+)
+
+/** Response from ppr_add (single) */
+data class PprAddResponse(
+    val status: String? = null,
+    val guid: String? = null,
+    val count: Int? = null,
+    val guids: List<String>? = null,
+    val error: String? = null
+)
+
+/** Request body for ppr_close */
+data class PprCloseRequest(
+    val guid: String,
+    val comment: String = "",
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val attachments: List<AttachmentData> = emptyList()
+)
+
+/** Response from ppr_list */
+data class PprListResponse(
+    val tasks: List<PprTaskItem>? = null
+)
+
+/** Response from /hs/api/v1/ppr_departments */
+data class PprDepartmentsResponse(
+    val departments: List<String>? = null
 )

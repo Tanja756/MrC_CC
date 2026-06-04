@@ -220,4 +220,68 @@ class OneSApiClient(
         val type = object : TypeToken<List<StorageMovement>>() {}.type
         return gson.fromJson(body, type)
     }
+
+    // ===================== PPR API methods =====================
+
+    /** Получить список ППР-заявок за квартал: GET /hs/api/v1/ppr_list
+     *  @param nameDepartment опциональный фильтр точного соответствия по подразделению
+     *  Возвращает null при ошибке HTTP (сервис недоступен),
+     *  пустой список при успешном ответе без заявок. */
+    fun getPprList(year: Int, quarter: Int, nameDepartment: String = ""): PprListResponse? {
+        var url = apiUrl("ppr_list?year=$year&quarter=$quarter")
+        if (nameDepartment.isNotBlank()) {
+            url += "&name_department=${java.net.URLEncoder.encode(nameDepartment, "UTF-8")}"
+        }
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return null
+        val body = response.body?.string() ?: "{}"
+        return try {
+            gson.fromJson(body, PprListResponse::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+
+    /** Закрыть ППР-заявку: POST /hs/api/v1/ppr_close */
+    fun pprClose(requestBody: PprCloseRequest): Boolean {
+        val url = apiUrl("ppr_close")
+        val json = gson.toJson(requestBody)
+        val mediaType = "application/json".toMediaType()
+        val body = json.toRequestBody(mediaType)
+        val request = Request.Builder().url(url).post(body).build()
+        val response = client.newCall(request).execute()
+        return response.isSuccessful
+    }
+
+    /** Получить список подразделений для ППР за квартал: GET /hs/api/v1/ppr_departments */
+    fun getPprDepartments(year: Int, quarter: Int): PprDepartmentsResponse? {
+        val url = apiUrl("ppr_departments?year=$year&quarter=$quarter")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return null
+        val body = response.body?.string() ?: "{}"
+        return try {
+            gson.fromJson(body, PprDepartmentsResponse::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Добавить ППР-заявку (одиночную): POST /hs/api/v1/ppr_add */
+    fun pprAdd(task: Map<String, Any?>): PprAddResponse? {
+        val url = apiUrl("ppr_add")
+        val json = gson.toJson(task)
+        val mediaType = "application/json".toMediaType()
+        val body = json.toRequestBody(mediaType)
+        val request = Request.Builder().url(url).post(body).build()
+        val response = client.newCall(request).execute()
+        val respBody = response.body?.string() ?: "{}"
+        return try {
+            gson.fromJson(respBody, PprAddResponse::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
 }
