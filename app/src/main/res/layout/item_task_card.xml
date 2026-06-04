@@ -117,7 +117,34 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <!-- Row 3 - Status | Priority -->
+        <!-- Row 3 - Wait | Remaining hours -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/tvWaitHours"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Ожид.: —"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tvRemainingHours"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:text="Ост.: —"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Row 4 - Status | Priority -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

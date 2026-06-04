@@ -124,6 +124,11 @@ class SessionManager(context: Context) {
         get() = prefs.getBoolean(KEY_NOTIFICATIONS, false)
         set(value) { prefs.edit().putBoolean(KEY_NOTIFICATIONS, value).commit() }
 
+    /** Whether deadline-based notifications (< 2 hours) are enabled */
+    var notifyByDeadline: Boolean
+        get() = prefs.getBoolean(KEY_NOTIFY_DEADLINE, false)
+        set(value) { prefs.edit().putBoolean(KEY_NOTIFY_DEADLINE, value).commit() }
+
     /** Polling interval in minutes (1, 2, 5, 10, 15, 30) */
     var pollIntervalMinutes: Int
         get() = prefs.getInt(KEY_POLL_INTERVAL, 10)
@@ -432,6 +437,7 @@ class SessionManager(context: Context) {
         private const val KEY_SORT_TASKS = "sort_mode_tasks"
         private const val KEY_SORT_FREE = "sort_mode_free"
         private const val KEY_SORT_CLOSED = "sort_mode_closed"
+        private const val KEY_NOTIFY_DEADLINE = "notify_by_deadline"
         private const val KEY_NOTIFICATIONS = "notifications_enabled"
         private const val KEY_POLL_INTERVAL = "poll_interval_minutes"
         private const val KEY_BALANCE_MONITORING = "balance_monitoring_enabled"

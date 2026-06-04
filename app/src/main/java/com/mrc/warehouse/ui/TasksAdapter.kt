@@ -178,10 +178,12 @@ class TasksAdapter(
             // ---- Pin icon ----
             if (onPinToggle != null && guid != null) {
                 val isPinned = session.isTaskPinned(guid)
-                binding.ivPin.visibility = View.VISIBLE
-                binding.ivPin.setImageResource(
-                    if (isPinned) R.drawable.ic_pin_filled else R.drawable.ic_pin_outline
-                )
+                if (isPinned) {
+                    binding.ivPin.visibility = View.VISIBLE
+                    binding.ivPin.setImageResource(R.drawable.ic_pin_filled)
+                } else {
+                    binding.ivPin.visibility = View.GONE
+                }
                 binding.ivPin.setOnClickListener {
                     if (isPinned) {
                         session.removePinnedTask(guid)
@@ -239,6 +241,31 @@ class TasksAdapter(
                 true
             }
 
+            // ---- Wait / Remaining hours (hidden for closed tasks) ----
+            if (onViewTaskClick != null) {
+                binding.tvWaitHours.visibility = View.GONE
+                binding.tvRemainingHours.visibility = View.GONE
+            } else {
+                binding.tvWaitHours.visibility = View.VISIBLE
+                binding.tvRemainingHours.visibility = View.VISIBLE
+                val waitHours = task.date?.let { dateStr ->
+                    val created = parseMskDate(dateStr)
+                    if (created != null) {
+                        val diffMs = System.currentTimeMillis() - created.time
+                        if (diffMs < 0) 0.0 else diffMs / (1000.0 * 60 * 60)
+                    } else null
+                }
+                val remainingHours = task.period?.let { periodStr ->
+                    val deadline = parseMskDate(periodStr)
+                    if (deadline != null) {
+                        val diffMs = deadline.time - System.currentTimeMillis()
+                        diffMs / (1000.0 * 60 * 60)
+                    } else null
+                }
+                binding.tvWaitHours.text = "Ожид.: ${waitHours?.let { formatHours(it) } ?: "—"}"
+                binding.tvRemainingHours.text = "Ост.: ${remainingHours?.let { formatHours(it) } ?: "—"}"
+            }
+
             binding.tvStatusBadge.text = "Статус: ${task.status ?: "—"}"
             binding.tvPriorityBadge.text = "Приоритет: ${priorityMap[task.priority] ?: task.priority?.toString() ?: "—"}"
 
@@ -292,6 +319,18 @@ class TasksAdapter(
                     onDescriptionClick(task.description)
                 }
             }
+        }
+    }
+
+    private fun formatHours(hours: Double): String {
+        return if (hours < 0) {
+            "0 ч"
+        } else if (hours < 1) {
+            "${(hours * 60).toInt()} мин"
+        } else {
+            val whole = hours.toInt()
+            val mins = ((hours - whole) * 60).toInt()
+            if (mins > 0) "${whole} ч ${mins} мин" else "${whole} ч"
         }
     }
 

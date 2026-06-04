@@ -179,6 +179,7 @@ class MainActivity : AppCompatActivity() {
         val spinnerStartHour = layout.findViewById<android.widget.Spinner>(R.id.spinnerStartHour)
         val spinnerEndHour = layout.findViewById<android.widget.Spinner>(R.id.spinnerEndHour)
         val cbNotifications = layout.findViewById<android.widget.CheckBox>(R.id.cbNotifications)
+        val cbNotifyDeadline = layout.findViewById<android.widget.CheckBox>(R.id.cbNotifyDeadline)
         val cbBalanceMonitoring = layout.findViewById<android.widget.CheckBox>(R.id.cbBalanceMonitoring)
         val tvStorageLabel = layout.findViewById<android.widget.TextView>(R.id.tvStorageLabel)
         val spinnerStorage = layout.findViewById<android.widget.Spinner>(R.id.spinnerStorage)
@@ -227,6 +228,9 @@ class MainActivity : AppCompatActivity() {
         // ---- Notifications checkbox ----
         cbNotifications.isChecked = session.notificationsEnabled
 
+        // ---- Deadline notification checkbox ----
+        cbNotifyDeadline.isChecked = session.notifyByDeadline
+
         // ---- Balance monitoring checkbox ----
         cbBalanceMonitoring.isChecked = session.balanceMonitoringEnabled
         updateBalanceMonitoringViews(cbBalanceMonitoring, tvStorageLabel, spinnerStorage)
@@ -265,6 +269,7 @@ class MainActivity : AppCompatActivity() {
         builder.setView(layout)
         builder.setPositiveButton("Сохранить") { _, _ ->
             session.notificationsEnabled = cbNotifications.isChecked
+            session.notifyByDeadline = cbNotifyDeadline.isChecked
             session.pollIntervalMinutes = intervalValues[spinnerPollInterval.selectedItemPosition]
             session.monitoringStartHour = spinnerStartHour.selectedItemPosition
             session.monitoringEndHour = spinnerEndHour.selectedItemPosition

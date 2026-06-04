@@ -34,7 +34,8 @@ class FreeTasksPollingService : Service() {
     private val scope = CoroutineScope(Dispatchers.IO + Job())
     private var pollingJob: Job? = null
     private var knownTaskGuids: MutableSet<String> = mutableSetOf()
-    private var notifiedUrgentGuids: MutableSet<String> = mutableSetOf() // task GUIDs already notified for <2h deadline
+    private var notifiedUrgentGuids: MutableSet<String> = mutableSetOf() // user task GUIDs already notified for <2h deadline
+    private var notifiedUrgentFreeGuids: MutableSet<String> = mutableSetOf() // free task GUIDs already notified for <2h deadline
     private var consecutiveFailures = 0
     private var pollIntervalMs = POLL_INTERVAL_MS
 
@@ -52,8 +53,8 @@ class FreeTasksPollingService : Service() {
 
         val session = SessionManager(this)
 
-        // Check if notifications are enabled — if not, stop immediately
-        if (!session.isAuthenticated || !session.notificationsEnabled) {
+        // Check if any relevant setting is enabled — if not, stop immediately
+        if (!session.isAuthenticated || (!session.notificationsEnabled && !session.notifyByDeadline)) {
             stopSelf()
             return START_NOT_STICKY
         }
@@ -72,6 +73,10 @@ class FreeTasksPollingService : Service() {
         // Load already-notified urgent task GUIDs
         val savedUrgentGuids = prefs.getStringSet(KEY_URGENT_NOTIFIED, emptySet()) ?: emptySet()
         notifiedUrgentGuids = savedUrgentGuids.toMutableSet()
+
+        // Load already-notified urgent free task GUIDs
+        val savedUrgentFreeGuids = prefs.getStringSet(KEY_URGENT_FREE_NOTIFIED, emptySet()) ?: emptySet()
+        notifiedUrgentFreeGuids = savedUrgentFreeGuids.toMutableSet()
 
         // If first run, seed with current free tasks to avoid spamming on first poll
         if (knownTaskGuids.isEmpty()) {
@@ -209,9 +214,16 @@ class FreeTasksPollingService : Service() {
         checkFreeTasks(client, session)
 
         // === 2. Check for urgent user tasks (deadline < 2 hours) ===
-        checkUrgentUserTasks(client, session)
+        if (session.notifyByDeadline) {
+            checkUrgentUserTasks(client, session)
+        }
 
-        // === 3. Check for balance changes ===
+        // === 3. Check for urgent free tasks (deadline < 2 hours) ===
+        if (session.notifyByDeadline) {
+            checkUrgentFreeTasks(client, session)
+        }
+
+        // === 4. Check for balance changes ===
         if (session.balanceMonitoringEnabled && session.monitoredStorageGuid.isNotEmpty()) {
             checkBalanceChanges(client, session)
         }
@@ -296,6 +308,71 @@ class FreeTasksPollingService : Service() {
     private fun saveUrgentNotified() {
         val prefs = getSharedPreferences("polling_state", Context.MODE_PRIVATE)
         prefs.edit().putStringSet(KEY_URGENT_NOTIFIED, notifiedUrgentGuids).apply()
+    }
+
+    /**
+     * Проверяет свободные заявки со сроком менее 2 часов.
+     * Уведомление выдаётся однократно для каждой заявки.
+     */
+    private fun checkUrgentFreeTasks(client: OneSApiClient, session: SessionManager) {
+        try {
+            val response = client.getTasksUnallocated()
+            val tasks = response.tasks ?: emptyList()
+
+            val now = Calendar.getInstance()
+
+            for (task in tasks) {
+                val guid = task.guid ?: continue
+                val deadlineStr = task.period ?: continue
+
+                val deadline = parseDeadline(deadlineStr) ?: continue
+
+                val diffMs = deadline.time - now.timeInMillis
+                val diffHours = diffMs / (60 * 60 * 1000.0)
+
+                // Если осталось менее 2 часов, срок ещё не прошёл, и ещё не уведомляли
+                if (diffHours in 0.0..<2.0 && guid !in notifiedUrgentFreeGuids) {
+                    notifyUrgentFreeTask(task)
+                    notifiedUrgentFreeGuids.add(guid)
+                    saveUrgentFreeNotified()
+                }
+            }
+        } catch (_: Exception) {
+            // Пропускаем ошибки — это не критично
+        }
+    }
+
+    private fun saveUrgentFreeNotified() {
+        val prefs = getSharedPreferences("polling_state", Context.MODE_PRIVATE)
+        prefs.edit().putStringSet(KEY_URGENT_FREE_NOTIFIED, notifiedUrgentFreeGuids).apply()
+    }
+
+    private fun notifyUrgentFreeTask(task: com.mrc.warehouse.api.TaskItem) {
+        val taskNumber = task.number ?: "—"
+        val taskName = task.name ?: "Без названия"
+
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("navigate_to", "free_tasks")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, URGENT_FREE_NOTIFICATION_ID + task.guid.hashCode(), intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("⚠️ Срочная свободная заявка!")
+            .setContentText("№$taskNumber: $taskName — менее 2 часов до срока")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("№$taskNumber: $taskName\nОсталось менее 2 часов до срока выполнения!"))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        nm.notify(URGENT_FREE_NOTIFICATION_ID + task.guid.hashCode(), notification)
     }
 
     private fun checkFreeTasks(client: OneSApiClient, session: SessionManager) {
@@ -530,8 +607,10 @@ class FreeTasksPollingService : Service() {
         private const val ACTION_STOP = "com.mrc.warehouse.STOP_POLLING"
         private const val KEY_KNOWN_GUIDS = "known_free_task_guids"
         private const val KEY_URGENT_NOTIFIED = "urgent_notified_guids"
+        private const val KEY_URGENT_FREE_NOTIFIED = "urgent_free_notified_guids"
         private const val KEY_CONSECUTIVE_FAILURES = "consecutive_failures"
         private const val URGENT_NOTIFICATION_ID = 2000
+        private const val URGENT_FREE_NOTIFICATION_ID = 3000
 
         fun start(context: Context) {
             val intent = Intent(context, FreeTasksPollingService::class.java)
