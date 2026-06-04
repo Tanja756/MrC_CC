@@ -363,12 +363,32 @@ class TaskDetailDialogFragment : DialogFragment() {
 
     // ====================== Файлы ======================
 
+    private fun getFileExtension(uri: Uri): String {
+        val context = requireContext()
+        val mime = context.contentResolver.getType(uri)
+        return when {
+            mime == "application/pdf" -> "pdf"
+            mime?.startsWith("image/") == true -> {
+                val subtype = mime.substringAfter("/")
+                when (subtype) {
+                    "jpeg" -> "jpg"
+                    "png" -> "png"
+                    "gif" -> "gif"
+                    "webp" -> "webp"
+                    "bmp" -> "bmp"
+                    else -> "jpg"
+                }
+            }
+            else -> {
+                val name = getFileName(uri) ?: "file.bin"
+                name.substringAfterLast(".", "bin")
+            }
+        }
+    }
+
     private fun addFileToSelection(uri: Uri) {
         val fileName = getFileName(uri) ?: "file"
-        val ext = when {
-            fileName.endsWith(".pdf", ignoreCase = true) -> "pdf"
-            else -> "bin"
-        }
+        val ext = getFileExtension(uri)
         if (selectedFiles.any { it.uri == uri }) return
         selectedFiles.add(FileAttachment(uri, fileName, ext))
         updateFilesUi()

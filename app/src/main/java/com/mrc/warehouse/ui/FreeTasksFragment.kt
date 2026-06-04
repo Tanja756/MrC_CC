@@ -148,6 +148,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
 
                 session.cachedTasksFreeJson = Gson().toJson(serverTasks)
                 session.updateSyncTimestamp()
+                session.markAutoSyncPerformed()
                 allTasks = serverTasks
 
                 withContext(Dispatchers.Main) {
@@ -181,21 +182,17 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
         }
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            // Пропускаем запрос, если данные обновлялись недавно (кроме принудительного обновления)
-            if (!force) {
-                val now = System.currentTimeMillis()
-                val shouldSkip = (now - session.lastSyncTimestamp) < SessionManager.MIN_SYNC_INTERVAL_MS
-                if (shouldSkip) {
-                    withContext(Dispatchers.Main) {
-                        if (allTasks.isEmpty()) {
-                            binding.tvError.visibility = View.VISIBLE
-                            binding.tvError.text = "Нет соединения или данные устарели"
-                        } else {
-                            binding.tvError.visibility = View.GONE
-                        }
+            // Автоматический запрос — проверяем лимит частоты через canPerformAutoSync()
+            if (!force && !session.canPerformAutoSync()) {
+                withContext(Dispatchers.Main) {
+                    if (allTasks.isEmpty()) {
+                        binding.tvError.visibility = View.VISIBLE
+                        binding.tvError.text = "Нет соединения или данные устарели"
+                    } else {
+                        binding.tvError.visibility = View.GONE
                     }
-                    return@launch
                 }
+                return@launch
             }
 
             try {
@@ -231,6 +228,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
 
                 session.cachedTasksFreeJson = serverJson
                 session.updateSyncTimestamp()
+                session.markAutoSyncPerformed()
                 allTasks = serverTasks
 
                 withContext(Dispatchers.Main) {
@@ -329,6 +327,9 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
                     }
 
                     if (result.status.equals("Выполнить", ignoreCase = true)) {
+                        // Устанавливаем флаг принудительного обновления для вкладки "Мои заявки"
+                        session.pendingForceTasksRefresh = true
+                        
                         AlertDialog.Builder(requireContext())
                             .setTitle("✅ Заявка взята")
                             .setMessage("Заявка $ticketNumber успешно взята в работу")
@@ -506,6 +507,9 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
                 isTakingTask = false
 
                 if (successGuids.isNotEmpty()) {
+                    // Устанавливаем флаг принудительного обновления для вкладки "Мои заявки"
+                    session.pendingForceTasksRefresh = true
+                    
                     allTasks = allTasks.filter { it.guid !in successGuids }
                     updateUiAfterLoad()
                 }

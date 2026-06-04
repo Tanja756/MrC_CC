@@ -122,6 +122,7 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                 // Сохраняем в кэш
                 session.cachedTasksClosedJson = Gson().toJson(serverTasks)
                 session.updateSyncTimestamp()
+                session.markAutoSyncPerformed()
                 
                 // Загружаем обратно через getCachedTasksClosed, чтобы применилась
                 // информация о локально сохранённых местоположениях (hasLocation)
@@ -158,21 +159,17 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
         }
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            // Пропускаем запрос, если данные обновлялись недавно (кроме принудительного обновления)
-            if (!force) {
-                val now = System.currentTimeMillis()
-                val shouldSkip = (now - session.lastSyncTimestamp) < SessionManager.MIN_SYNC_INTERVAL_MS
-                if (shouldSkip) {
-                    withContext(Dispatchers.Main) {
-                        if (allTasks.isEmpty()) {
-                            binding.tvError.visibility = View.VISIBLE
-                            binding.tvError.text = "Нет соединения или данные устарели"
-                        } else {
-                            binding.tvError.visibility = View.GONE
-                        }
+            // Автоматический запрос — проверяем лимит частоты через canPerformAutoSync()
+            if (!force && !session.canPerformAutoSync()) {
+                withContext(Dispatchers.Main) {
+                    if (allTasks.isEmpty()) {
+                        binding.tvError.visibility = View.VISIBLE
+                        binding.tvError.text = "Нет соединения или данные устарели"
+                    } else {
+                        binding.tvError.visibility = View.GONE
                     }
-                    return@launch
                 }
+                return@launch
             }
 
             try {
@@ -209,6 +206,7 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                 // Сохраняем в кэш
                 session.cachedTasksClosedJson = serverJson
                 session.updateSyncTimestamp()
+                session.markAutoSyncPerformed()
                 
                 // Загружаем обратно через getCachedTasksClosed, чтобы применилась
                 // информация о локально сохранённых местоположениях (hasLocation)

@@ -169,8 +169,15 @@ class TasksFragment : Fragment(), SearchSortCallback {
         val extension: String
     )
 
-    // File picker launcher
-    private val filePickerLauncher = registerForActivityResult(
+    // File picker launchers
+    private val anyFilePickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            addFileToSelection(uri)
+        }
+    }
+    private val pdfPickerLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
@@ -203,7 +210,8 @@ class TasksFragment : Fragment(), SearchSortCallback {
             priorityMap = priorityMap,
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
             onCompleteTaskClick = { task -> completeTask(task) },
-            onCardClick = { task -> showUserTaskDetailDialog(task) }
+            onCardClick = { task -> showUserTaskDetailDialog(task) },
+            onPinToggle = { applyFilters() }
         )
         binding.rvTasks.adapter = adapter
 
@@ -258,6 +266,7 @@ class TasksFragment : Fragment(), SearchSortCallback {
 
                 session.cachedTasksUserJson = Gson().toJson(serverTasks)
                 session.updateSyncTimestamp()
+                session.markAutoSyncPerformed()
                 allTasks = serverTasks
 
                 withContext(Dispatchers.Main) {
@@ -280,7 +289,7 @@ class TasksFragment : Fragment(), SearchSortCallback {
 
     /**
      * Загрузка задач с кэша и фоновым обновлением с сервера.
-     * @param force если true, игнорирует интервал синхронизации (принудительное обновление)
+     * @param force если true, игнорирует интервал авто-синхронизации (принудительное обновление)
      */
     private fun loadTasks(force: Boolean = false) {
         // 1. Immediately show cached data (no waiting)
@@ -293,18 +302,14 @@ class TasksFragment : Fragment(), SearchSortCallback {
 
         // 2. In background, try to fetch fresh data from server
         CoroutineScope(Dispatchers.IO).launch {
-            // Пропускаем запрос, если данные обновлялись недавно (кроме принудительного обновления)
-            if (!force) {
-                val now = System.currentTimeMillis()
-                val shouldSkip = (now - session.lastSyncTimestamp) < SessionManager.MIN_SYNC_INTERVAL_MS
-                if (shouldSkip) {
-                    withContext(Dispatchers.Main) {
-                        if (_binding == null) return@withContext
-                        binding.tvError.visibility = if (allTasks.isEmpty()) View.VISIBLE else View.GONE
-                        if (allTasks.isEmpty()) binding.tvError.text = "Нет соединения или данные устарели"
-                    }
-                    return@launch
+            // Автоматический запрос — проверяем лимит частоты через canPerformAutoSync()
+            if (!force && !session.canPerformAutoSync()) {
+                withContext(Dispatchers.Main) {
+                    if (_binding == null) return@withContext
+                    binding.tvError.visibility = if (allTasks.isEmpty()) View.VISIBLE else View.GONE
+                    if (allTasks.isEmpty()) binding.tvError.text = "Нет соединения или данные устарели"
                 }
+                return@launch
             }
 
             try {
@@ -329,6 +334,7 @@ class TasksFragment : Fragment(), SearchSortCallback {
                 // Data changed — update cache and UI
                 session.cachedTasksUserJson = serverJson
                 session.updateSyncTimestamp()
+                session.markAutoSyncPerformed()
                 allTasks = serverTasks
 
                 withContext(Dispatchers.Main) {
@@ -363,7 +369,8 @@ class TasksFragment : Fragment(), SearchSortCallback {
             priorityMap = priorityMap,
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
             onCompleteTaskClick = { task -> completeTask(task) },
-            onCardClick = { task -> showUserTaskDetailDialog(task) }
+            onCardClick = { task -> showUserTaskDetailDialog(task) },
+            onPinToggle = { applyFilters() }
         )
         binding.rvTasks.adapter = adapter
         applyFilters()
@@ -394,7 +401,12 @@ class TasksFragment : Fragment(), SearchSortCallback {
                 )
                 fields.any { it != null && it.lowercase().contains(searchText) }
             }
-            .let { sortTasks(it, currentSortMode) }
+            .let { list ->
+                val pinnedGuids = session.getPinnedTasks()
+                val pinned = list.filter { it.guid != null && pinnedGuids.contains(it.guid) }
+                val unpinned = list.filter { it.guid == null || !pinnedGuids.contains(it.guid) }
+                sortTasks(pinned, currentSortMode) + sortTasks(unpinned, currentSortMode)
+            }
 
         adapter.updateData(filtered)
 
@@ -410,7 +422,6 @@ class TasksFragment : Fragment(), SearchSortCallback {
         }
         return sorted
     }
-
     /** Convert "dd.MM.yyyy HH:mm:ss" → "yyyyMMddHHmmss" for correct string-based date sorting */
     private fun dateToSortKey(dateStr: String?): String {
         if (dateStr.isNullOrBlank()) return ""
@@ -454,9 +465,12 @@ class TasksFragment : Fragment(), SearchSortCallback {
             requestLocationPermission()
         }
 
-        // Add file button
+        // Add file buttons
         dialogBinding!!.btnAddFile.setOnClickListener {
-            filePickerLauncher.launch(arrayOf("application/pdf"))
+            pdfPickerLauncher.launch(arrayOf("application/pdf"))
+        }
+        dialogBinding!!.btnAddAttachment.setOnClickListener {
+            anyFilePickerLauncher.launch(arrayOf("*/*"))
         }
 
         // Validation error hidden initially
@@ -591,10 +605,13 @@ class TasksFragment : Fragment(), SearchSortCallback {
             withContext(Dispatchers.Main) {
                 loadingDialog.dismiss()
                 if (success) {
+                    // Удаляем задачу из списка сразу
+                    allTasks = allTasks.filter { it.guid != guid }
+                    updateUiAfterLoad()
                     AlertDialog.Builder(requireContext())
                         .setTitle("✅ Заявка отправлена")
                         .setMessage("Данные по заявке $ticketNumber отправлены. После проверки менеджером она будет закрыта.")
-                        .setPositiveButton("OK") { _, _ -> loadTasks() }
+                        .setPositiveButton("OK", null)
                         .show()
                 } else {
                     AlertDialog.Builder(requireContext())
@@ -618,9 +635,33 @@ class TasksFragment : Fragment(), SearchSortCallback {
 
     // ========================== File handling ==========================
 
+    private fun getFileExtension(uri: Uri): String {
+        val context = requireContext()
+        val mime = context.contentResolver.getType(uri)
+        return when {
+            mime == "application/pdf" -> "pdf"
+            mime?.startsWith("image/") == true -> {
+                val subtype = mime.substringAfter("/")
+                when (subtype) {
+                    "jpeg" -> "jpg"
+                    "png" -> "png"
+                    "gif" -> "gif"
+                    "webp" -> "webp"
+                    "bmp" -> "bmp"
+                    else -> "jpg" // по умолчанию для других image/*
+                }
+            }
+            else -> {
+                // fallback по имени файла
+                val name = getFileName(uri) ?: "file.bin"
+                name.substringAfterLast(".", "bin")
+            }
+        }
+    }
+
     private fun addFileToSelection(uri: Uri) {
-        val fileName = getFileName(uri) ?: "file.pdf"
-        val ext = if (fileName.endsWith(".pdf", ignoreCase = true)) "pdf" else "bin"
+        val fileName = getFileName(uri) ?: "file"
+        val ext = getFileExtension(uri)
 
         // Avoid duplicates
         if (selectedFiles.any { it.uri == uri }) return
@@ -686,12 +727,16 @@ class TasksFragment : Fragment(), SearchSortCallback {
     // ========================== Detail dialog (user task) ==========================
 
     private fun showUserTaskDetailDialog(task: TaskItem) {
+        val taskGuid = task.guid
         val dialog = TaskDetailDialogFragment.newInstance(
             task = task,
             mode = TaskDetailDialogFragment.DialogMode.USER_TASK,
             onTaskClosed = {
-                // После закрытия заявки перезагружаем список
-                loadTasks()
+                // После закрытия заявки удаляем из списка сразу
+                if (taskGuid != null) {
+                    allTasks = allTasks.filter { it.guid != taskGuid }
+                    updateUiAfterLoad()
+                }
             }
         )
         dialog.show(parentFragmentManager, "TaskDetailDialog")
@@ -727,6 +772,18 @@ class TasksFragment : Fragment(), SearchSortCallback {
         if (text.isNullOrBlank()) return null
         val regex = Regex("[А-ЯЁа-яё]{2}-\\d{6}")
         return regex.find(text)?.value
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Если был установлен флаг принудительного обновления (например, после взятия задачи),
+        // выполняем принудительную загрузку и сбрасываем флаг
+        if (session.pendingForceTasksRefresh) {
+            session.pendingForceTasksRefresh = false
+            loadTasks(force = true)
+        } else {
+            loadTasks(force = false)
+        }
     }
 
     override fun onDestroyView() {

@@ -10,6 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.mrc.warehouse.R
 import com.mrc.warehouse.api.TaskItem
 import com.mrc.warehouse.databinding.ItemTaskCardBinding
+import com.mrc.warehouse.util.SessionManager
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -21,7 +22,8 @@ class TasksAdapter(
     private val onTakeTaskClick: ((TaskItem) -> Unit)? = null,
     private val onCompleteTaskClick: ((TaskItem) -> Unit)? = null,
     private val onViewTaskClick: ((TaskItem) -> Unit)? = null,
-    private val onCardClick: ((TaskItem) -> Unit)? = null
+    private val onCardClick: ((TaskItem) -> Unit)? = null,
+    private val onPinToggle: ((TaskItem) -> Unit)? = null
 ) : RecyclerView.Adapter<TasksAdapter.TaskViewHolder>() {
 
     // Multi-select mode
@@ -78,6 +80,9 @@ class TasksAdapter(
         }
 
         fun bind(task: TaskItem) {
+            val ctx = binding.root.context
+            val session = SessionManager(ctx)
+
             binding.tvTaskName.text = task.name ?: "Без названия"
             binding.tvDepartment.text = "Подр.: ${task.nameDepartment ?: "—"}"
             binding.tvClient.text = "Клиент: ${clientsMap[task.guidClient] ?: task.guidClient ?: "—"}"
@@ -170,12 +175,36 @@ class TasksAdapter(
                 }
             }
 
-            // ---- Long press context menu (Share / Select) ----
+            // ---- Pin icon ----
+            if (onPinToggle != null && guid != null) {
+                val isPinned = session.isTaskPinned(guid)
+                binding.ivPin.visibility = View.VISIBLE
+                binding.ivPin.setImageResource(
+                    if (isPinned) R.drawable.ic_pin_filled else R.drawable.ic_pin_outline
+                )
+                binding.ivPin.setOnClickListener {
+                    if (isPinned) {
+                        session.removePinnedTask(guid)
+                    } else {
+                        session.addPinnedTask(guid)
+                    }
+                    onPinToggle(task)
+                }
+            } else {
+                binding.ivPin.visibility = View.GONE
+            }
+
+            // ---- Long press context menu (Share / Select / Pin) ----
             binding.root.setOnLongClickListener { v ->
                 val popup = PopupMenu(v.context, v)
                 popup.menu.add(0, 1, 0, "Поделиться")
                 if (onTakeTaskClick != null) {
                     popup.menu.add(0, 2, 0, "Выбрать")
+                }
+                // Pin / Unpin item in long-press menu (only when onPinToggle is set, i.e. in "Мои заявки")
+                if (onPinToggle != null && guid != null) {
+                    val isPinned = session.isTaskPinned(guid)
+                    popup.menu.add(0, 3, 0, if (isPinned) "Открепить" else "Закрепить")
                 }
                 popup.setOnMenuItemClickListener { item ->
                     when (item.itemId) {
@@ -190,6 +219,17 @@ class TasksAdapter(
                             selectable = true
                             onEnterSelectMode?.invoke()
                             onSelectionChanged?.invoke()
+                            true
+                        }
+                        3 -> {
+                            if (guid != null) {
+                                if (session.isTaskPinned(guid)) {
+                                    session.removePinnedTask(guid)
+                                } else {
+                                    session.addPinnedTask(guid)
+                                }
+                                onPinToggle?.invoke(task)
+                            }
                             true
                         }
                         else -> false

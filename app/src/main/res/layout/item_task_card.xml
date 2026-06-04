@@ -46,6 +46,17 @@
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
+            <ImageButton
+                android:id="@+id/ivPin"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="4dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:scaleType="centerInside"
+                android:visibility="gone"
+                android:src="@drawable/ic_pin_outline"
+                android:contentDescription="Закрепить" />
+
         </LinearLayout>
 
         <!-- Two-column table: Row 1 - Department | Client -->

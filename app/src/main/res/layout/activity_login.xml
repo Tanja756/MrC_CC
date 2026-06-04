@@ -48,7 +48,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="20dp"
-                android:text="MrCheck: CC"
+                android:text="Мр.Чек: Заявки"
                 android:textColor="@color/text_primary"
                 android:textSize="26sp"
                 android:textStyle="bold" />

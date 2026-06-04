@@ -108,18 +108,14 @@ class WarehouseFragment : Fragment() {
 
     /**
      * Загрузка остатков с сервера или из кэша.
-     * @param force если true, игнорирует интервал синхронизации (принудительное обновление)
+     * @param force если true, игнорирует интервал авто-синхронизации (принудительное обновление)
      */
     private fun loadBalances(storage: StorageItem, force: Boolean = false) {
         lifecycleScope.launch(Dispatchers.IO) {
-            // Если синхронизация была недавно – используем кэш (кроме принудительного обновления)
-            if (!force) {
-                val now = System.currentTimeMillis()
-                val shouldSkip = (now - session.lastSyncTimestamp) < SessionManager.MIN_SYNC_INTERVAL_MS
-                if (shouldSkip) {
-                    loadCachedBalances(storage)
-                    return@launch
-                }
+            // Автоматический запрос — проверяем лимит частоты через canPerformAutoSync()
+            if (!force && !session.canPerformAutoSync()) {
+                loadCachedBalances(storage)
+                return@launch
             }
 
             try {
@@ -129,6 +125,7 @@ class WarehouseFragment : Fragment() {
 
                     session.setCachedBalances(storage.guid ?: "", balances)
                     session.updateSyncTimestamp()
+                    session.markAutoSyncPerformed()
 
                     withContext(Dispatchers.Main) {
                         allBalances = balances

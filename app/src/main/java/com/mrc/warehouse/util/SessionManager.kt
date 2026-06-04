@@ -164,6 +164,32 @@ class SessionManager(context: Context) {
         get() = prefs.getLong(KEY_LAST_POLL_TS, 0L)
         set(value) { prefs.edit().putLong(KEY_LAST_POLL_TS, value).commit() }
 
+    // ===================== Rate limiting for auto-sync =====================
+
+    /** Минимальный интервал между автоматическими запросами (60 секунд) */
+    private var lastAutoSyncTimestamp: Long
+        get() = prefs.getLong(KEY_LAST_AUTO_SYNC, 0L)
+        set(value) { prefs.edit().putLong(KEY_LAST_AUTO_SYNC, value).commit() }
+
+    /**
+     * Проверяет, можно ли выполнить автоматический запрос к серверу.
+     * Между автоматическими запросами должно пройти не менее MIN_AUTO_SYNC_INTERVAL_MS.
+     */
+    fun canPerformAutoSync(): Boolean {
+        val now = System.currentTimeMillis()
+        return (now - lastAutoSyncTimestamp) >= MIN_AUTO_SYNC_INTERVAL_MS
+    }
+
+    /** Отмечает время выполнения автоматического запроса */
+    fun markAutoSyncPerformed() {
+        lastAutoSyncTimestamp = System.currentTimeMillis()
+    }
+
+    /** Флаг: нужно ли принудительно обновить "Мои заявки" при следующем переключении вкладки */
+    var pendingForceTasksRefresh: Boolean
+        get() = prefs.getBoolean(KEY_PENDING_FORCE_TASKS_REFRESH, false)
+        set(value) { prefs.edit().putBoolean(KEY_PENDING_FORCE_TASKS_REFRESH, value).commit() }
+
     // ===================== Pseudo-offline support =====================
 
     /** Timestamp (epoch millis) of last successful full data sync */
@@ -342,6 +368,38 @@ class SessionManager(context: Context) {
         return sdf.format(java.util.Date(millis))
     }
 
+    // ===================== Pinned tasks =====================
+
+    /**
+     * Добавляет GUID задачи в список закреплённых.
+     */
+    fun addPinnedTask(guid: String) {
+        val set = getPinnedTasks().toMutableSet()
+        set.add(guid)
+        prefs.edit().putStringSet(KEY_PINNED_TASKS, set).commit()
+    }
+
+    /**
+     * Удаляет GUID задачи из списка закреплённых.
+     */
+    fun removePinnedTask(guid: String) {
+        val set = getPinnedTasks().toMutableSet()
+        set.remove(guid)
+        prefs.edit().putStringSet(KEY_PINNED_TASKS, set).commit()
+    }
+
+    /**
+     * Возвращает Set закреплённых GUID задач.
+     */
+    fun getPinnedTasks(): Set<String> {
+        return prefs.getStringSet(KEY_PINNED_TASKS, emptySet()) ?: emptySet()
+    }
+
+    /**
+     * Проверяет, закреплена ли задача с указанным GUID.
+     */
+    fun isTaskPinned(guid: String): Boolean = getPinnedTasks().contains(guid)
+
     fun clear() {
         prefs.edit().clear().commit()
     }
@@ -349,6 +407,9 @@ class SessionManager(context: Context) {
     companion object {
         /** Минимальный интервал между автоматическими запросами (60 секунд) */
         const val MIN_SYNC_INTERVAL_MS = 60_000L
+
+        /** Минимальный интервал между авто‑синхронизациями (60 секунд) */
+        const val MIN_AUTO_SYNC_INTERVAL_MS = 60_000L
 
         /** Интервал для справочных данных (склады, клиенты, товары) – 20 минут */
         const val MIN_REFERENCES_SYNC_INTERVAL_MS = 1_200_000L
@@ -380,6 +441,13 @@ class SessionManager(context: Context) {
         private const val KEY_LAST_POLL_TS = "last_poll_timestamp"
         private const val KEY_MONITORING_START_HOUR = "monitoring_start_hour"
         private const val KEY_MONITORING_END_HOUR = "monitoring_end_hour"
+
+        // Rate limiting
+        private const val KEY_LAST_AUTO_SYNC = "last_auto_sync_timestamp"
+        private const val KEY_PENDING_FORCE_TASKS_REFRESH = "pending_force_tasks_refresh"
+
+        // Pinned tasks
+        private const val KEY_PINNED_TASKS = "pinned_tasks"
 
         // Offline cache keys
         private const val KEY_LAST_SYNC_TS = "last_sync_timestamp"
