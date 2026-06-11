@@ -60,13 +60,7 @@ class TasksAdapter(
         private fun shareTask(task: TaskItem) {
             val ctx = binding.root.context
             val shareText = buildString {
-                append("📋 Заявка: ${task.name ?: "Без названия"}\n")
-                append("Статус: ${task.status ?: "—"}\n")
-                append("Подразделение: ${task.nameDepartment ?: "—"}\n")
-                append("Клиент: ${clientsMap[task.guidClient] ?: task.guidClient ?: "—"}\n")
-                append("Дата создания: ${formatDate(task.date)}\n")
-                append("Срок: ${formatDate(task.period)}\n")
-                append("Приоритет: ${priorityMap[task.priority] ?: task.priority?.toString() ?: "—"}\n")
+                append("${task.name ?: "Без названия"}\n")
                 if (!task.description.isNullOrBlank()) {
                     append("Описание: ${task.description}\n")
                 }
