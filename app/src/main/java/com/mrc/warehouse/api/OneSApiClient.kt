@@ -269,6 +269,20 @@ class OneSApiClient(
         }
     }
 
+    /** Получить вложения для заявки: GET /hs/api/v1/tasks-attachment?guid=... */
+    fun getTaskAttachments(guid: String): AttachmentsResponse? {
+        val url = apiUrl("tasks-attachment?guid=$guid")
+        val request = Request.Builder().url(url).get().build()
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) return null
+        val body = response.body?.string() ?: "{}"
+        return try {
+            gson.fromJson(body, AttachmentsResponse::class.java)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Добавить ППР-заявку (одиночную): POST /hs/api/v1/ppr_add */
     fun pprAdd(task: Map<String, Any?>): PprAddResponse? {
         val url = apiUrl("ppr_add")
@@ -283,5 +297,71 @@ class OneSApiClient(
         } catch (e: Exception) {
             null
         }
+    }
+
+    // ===================== Documents API =====================
+
+    /**
+     * Запросить zip-архив с PDF-документами (АВР, ФН, М15) по задаче.
+     * POST https://cl.x-23.ru/api/tasks/documents
+     *
+     * @return ByteArray с содержимым zip-архива, или null при ошибке
+     */
+    fun getTaskDocuments(guid: String): ByteArray? {
+        val url = "https://cl.x-23.ru/api/tasks/documents"
+        val requestBody = DocumentsRequest(
+            guid = guid,
+            login = username,
+            password = password,
+            includeAct = true,
+            includeFn = true,
+            includeM15 = true
+        )
+        val json = gson.toJson(requestBody)
+        val mediaType = "application/json".toMediaType()
+        val body = json.toRequestBody(mediaType)
+
+        // Создаём отдельный клиент без Basic Auth для этого запроса
+        val docClientBuilder = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+
+        // Применяем настройки прокси (если настроены)
+        if ((proxyType != 0) && (proxyHost.isNotBlank() && proxyPort.isNotBlank())) {
+            val port = proxyPort.toIntOrNull() ?: 0
+            if (port > 0) {
+                val proxyTypeJava = when (proxyType) {
+                    2 -> Proxy.Type.SOCKS
+                    else -> Proxy.Type.HTTP
+                }
+                val proxy = Proxy(proxyTypeJava, InetSocketAddress(proxyHost, port))
+                docClientBuilder.proxy(proxy)
+
+                if (proxyUser.isNotBlank()) {
+                    docClientBuilder.proxyAuthenticator { _, response ->
+                        val credential = okhttp3.Credentials.basic(proxyUser, proxyPassword)
+                        response.request.newBuilder()
+                            .header("Proxy-Authorization", credential)
+                            .build()
+                    }
+                }
+            }
+        }
+
+        val docClient = docClientBuilder.build()
+
+        val request = Request.Builder()
+            .url(url)
+            .header("Content-Type", "application/json")
+            .post(body)
+            .build()
+
+        val response = docClient.newCall(request).execute()
+        if (!response.isSuccessful) {
+            val errorBody = response.body?.string() ?: "нет данных"
+            throw RuntimeException("HTTP ${response.code}: $errorBody")
+        }
+        return response.body?.bytes()
     }
 }

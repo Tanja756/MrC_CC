@@ -1,7 +1,11 @@
 package com.mrc.warehouse.ui
 
+import android.content.ContentValues
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.LayoutInflater
@@ -11,6 +15,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.fragment.app.Fragment
 import com.google.gson.Gson
 import com.mrc.warehouse.R
@@ -31,6 +36,8 @@ import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import android.annotation.SuppressLint
+import java.io.File
+import java.io.FileOutputStream
 
 
 class TasksFragment : Fragment(), SearchSortCallback {
@@ -211,7 +218,8 @@ class TasksFragment : Fragment(), SearchSortCallback {
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
             onCompleteTaskClick = { task -> completeTask(task) },
             onCardClick = { task -> showUserTaskDetailDialog(task) },
-            onPinToggle = { applyFilters() }
+            onPinToggle = { applyFilters() },
+            onRequestDocumentsClick = { task -> requestTaskDocuments(task) }
         )
         binding.rvTasks.adapter = adapter
 
@@ -370,7 +378,8 @@ class TasksFragment : Fragment(), SearchSortCallback {
             onDescriptionClick = { desc -> showDescriptionDialog(desc) },
             onCompleteTaskClick = { task -> completeTask(task) },
             onCardClick = { task -> showUserTaskDetailDialog(task) },
-            onPinToggle = { applyFilters() }
+            onPinToggle = { applyFilters() },
+            onRequestDocumentsClick = { task -> requestTaskDocuments(task) }
         )
         binding.rvTasks.adapter = adapter
         applyFilters()
@@ -720,6 +729,155 @@ class TasksFragment : Fragment(), SearchSortCallback {
                 } else null
             } catch (e: Exception) {
                 null
+            }
+        }
+    }
+
+    // ========================== Request task documents ==========================
+
+    /**
+     * Запросить zip-архив с PDF-документами (АВР, ФН, М15) с сервера,
+     * сохранить в Downloads и открыть через стандартный обработчик.
+     */
+    private fun requestTaskDocuments(task: TaskItem) {
+        val guid = task.guid
+        if (guid.isNullOrBlank()) {
+            showError("Ошибка", "У заявки отсутствует идентификатор")
+            return
+        }
+
+        val loadingDialog = AlertDialog.Builder(requireContext())
+            .setTitle("Загрузка документов")
+            .setMessage("Получение документов...")
+            .setCancelable(false)
+            .show()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val client = session.createApiClient()
+                val zipBytes = client.getTaskDocuments(guid)
+
+                if (zipBytes == null || zipBytes.isEmpty()) {
+                    withContext(Dispatchers.Main) {
+                        loadingDialog.dismiss()
+                        showError("Ошибка", "Сервер вернул пустой ответ или произошла ошибка")
+                    }
+                    return@launch
+                }
+
+                // Имя файла: documents-{первые 8 символов GUID}.zip
+                val safeGuidPrefix = guid.take(8).replace(Regex("[^a-zA-Z0-9]"), "_")
+                val fileName = "documents-$safeGuidPrefix.zip"
+                val mimeType = "application/zip"
+
+                // 1) Сохраняем во временный кэш для немедленного открытия
+                val cacheDir = File(requireContext().cacheDir, "documents")
+                cacheDir.mkdirs()
+                val cacheFile = File(cacheDir, fileName)
+                FileOutputStream(cacheFile).use { fos ->
+                    fos.write(zipBytes)
+                    fos.flush()
+                }
+
+                // 2) В фоне копируем в Downloads для постоянного хранения
+                copyZipToDownloads(zipBytes, fileName, mimeType)
+
+                // 3) Открываем папку Downloads в файловом менеджере
+                withContext(Dispatchers.Main) {
+                    loadingDialog.dismiss()
+                    if (_binding == null) return@withContext
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("✅ Документы сохранены")
+                        .setMessage("Архив \"$fileName\" сохранён в папке Downloads.\n\nЧтобы открыть PDF, распакуйте архив любым архиватором (например, RAR, 7Zipper).")
+                        .setPositiveButton("Открыть папку") { _, _ ->
+                            try {
+                                val downloadsUri: Uri
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                    downloadsUri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload")
+                                } else {
+                                    downloadsUri = Uri.parse(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS).absolutePath)
+                                }
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                    setDataAndType(downloadsUri, "resource/folder")
+                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(intent)
+                            } catch (_: Exception) {
+                                // Если не удалось открыть папку — пробуем открыть сам файл
+                                try {
+                                    val uri = FileProvider.getUriForFile(
+                                        requireContext(),
+                                        "${requireContext().packageName}.fileprovider",
+                                        cacheFile
+                                    )
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, mimeType)
+                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    }
+                                    startActivity(intent)
+                                } catch (_: Exception) {
+                                    // Ничего не делаем
+                                }
+                            }
+                        }
+                        .setNegativeButton("OK", null)
+                        .show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    loadingDialog.dismiss()
+                    if (_binding == null) return@withContext
+                    showError("Ошибка", "Не удалось получить документы: ${e.message}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Копирует zip-архив в папку Downloads в фоне.
+     */
+    private fun copyZipToDownloads(fileBytes: ByteArray, fileName: String, mimeType: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                        put(MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val resolver = requireContext().contentResolver
+                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        resolver.openOutputStream(uri)?.use { os ->
+                            os.write(fileBytes)
+                            os.flush()
+                        }
+                        contentValues.clear()
+                        contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+                        resolver.update(uri, contentValues, null, null)
+                    }
+                } else {
+                    val downloadsDir = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS
+                    )
+                    val file = File(downloadsDir, fileName)
+                    var targetFile = file
+                    var counter = 1
+                    while (targetFile.exists()) {
+                        val dotIndex = fileName.lastIndexOf('.')
+                        val baseName = if (dotIndex > 0) fileName.substring(0, dotIndex) else fileName
+                        val ext = if (dotIndex > 0) fileName.substring(dotIndex) else ""
+                        targetFile = File(downloadsDir, "${baseName}_($counter)$ext")
+                        counter++
+                    }
+                    FileOutputStream(targetFile).use { fos ->
+                        fos.write(fileBytes)
+                        fos.flush()
+                    }
+                }
+            } catch (_: Exception) {
+                // Файл уже есть в кэше — ошибка копирования не критична
             }
         }
     }

@@ -3,17 +3,22 @@ package com.mrc.warehouse.ui
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.text.Html
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
-import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import androidx.core.content.FileProvider
+import com.google.android.material.button.MaterialButton
 import com.mrc.warehouse.R
+import com.mrc.warehouse.api.AttachmentItem
 import com.mrc.warehouse.api.AttachmentData
 import com.mrc.warehouse.api.TaskCloseRequest
 import com.mrc.warehouse.api.TaskItem
@@ -29,7 +34,12 @@ import androidx.core.app.ActivityCompat
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import android.annotation.SuppressLint
+import android.content.ContentValues
+import android.os.Build
+import android.provider.MediaStore
 import androidx.fragment.app.DialogFragment
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * BottomSheetDialogFragment для просмотра и управления заявкой.
@@ -38,6 +48,7 @@ import androidx.fragment.app.DialogFragment
  * - FREE_TASK: свободная заявка (кнопки: Взять в работу, Копировать, Назад)
  * - USER_TASK: моя заявка (вложение, PDF → Закрыть заявку, Копировать, Назад)
  * - CLOSED_TASK: закрытая заявка (кнопки: Копировать, Назад)
+ *   + отображение вложений с возможностью скачать/открыть
  */
 class TaskDetailDialogFragment : DialogFragment() {
 
@@ -125,7 +136,10 @@ class TaskDetailDialogFragment : DialogFragment() {
         // Секция 3: Комментарий
         configureCommentSection(task)
 
-        // Секция 4: Кнопки
+        // Секция 4: Вложения (для закрытых заявок)
+        configureAttachmentsSection(task)
+
+        // Секция 5: Кнопки
         configureButtons(task)
 
         // Назад
@@ -161,6 +175,311 @@ class TaskDetailDialogFragment : DialogFragment() {
                 // Контейнер файлов показываем, если есть файлы
                 updateFilesUi()
             }
+        }
+    }
+
+    // ====================== Вложения (для закрытых заявок) ======================
+
+    /**
+     * Настраивает секцию вложений для закрытых заявок.
+     * Если у заявки есть вложения (hasAttachments == true),
+     * показываем секцию с кнопкой "Загрузить вложения".
+     * Загрузка происходит только по нажатию кнопки.
+     */
+    private fun configureAttachmentsSection(task: TaskItem) {
+        if (mode != DialogMode.CLOSED_TASK || task.hasAttachments != true) {
+            binding.sectionAttachments.visibility = View.GONE
+            return
+        }
+
+        binding.sectionAttachments.visibility = View.VISIBLE
+        binding.attachmentsContainer.removeAllViews()
+        binding.btnLoadAttachments.visibility = View.VISIBLE
+        binding.attachmentsProgress.visibility = View.GONE
+
+        binding.btnLoadAttachments.setOnClickListener {
+            binding.btnLoadAttachments.visibility = View.GONE
+            binding.attachmentsProgress.visibility = View.VISIBLE
+            binding.attachmentsContainer.removeAllViews()
+            loadAttachments(task.guid ?: "")
+        }
+    }
+
+    /**
+     * Загружает список вложений с сервера.
+     */
+    private fun loadAttachments(guid: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val client = session.createApiClient()
+                val response = client.getTaskAttachments(guid)
+                val attachments = response?.attachments?.filter { it.content != null } ?: emptyList()
+
+                withContext(Dispatchers.Main) {
+                    if (!isAdded) return@withContext
+                    binding.attachmentsProgress.visibility = View.GONE
+                    displayAttachments(attachments)
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    if (!isAdded) return@withContext
+                    binding.attachmentsProgress.visibility = View.GONE
+                    binding.btnLoadAttachments.visibility = View.VISIBLE
+                    binding.attachmentsContainer.removeAllViews()
+                    val errorText = TextView(requireContext()).apply {
+                        text = "Ошибка загрузки вложений: ${e.message}"
+                        setTextColor(resources.getColor(R.color.status_error, null))
+                        textSize = 13f
+                        setPadding(0, 8, 0, 8)
+                    }
+                    binding.attachmentsContainer.addView(errorText)
+                }
+            }
+        }
+    }
+
+    /**
+     * Отображает список вложений с кнопкой загрузки и открытия.
+     */
+    private fun displayAttachments(attachments: List<AttachmentItem>) {
+        binding.attachmentsContainer.removeAllViews()
+
+        if (attachments.isEmpty()) {
+            val noAttachText = TextView(requireContext()).apply {
+                text = "Нет доступных вложений"
+                setTextColor(resources.getColor(R.color.text_secondary, null))
+                textSize = 14f
+                setPadding(0, 8, 0, 8)
+            }
+            binding.attachmentsContainer.addView(noAttachText)
+            return
+        }
+
+        attachments.forEachIndexed { index, attachment ->
+            val fileName = attachment.filename ?: "file_${index + 1}"
+            val fileType = attachment.filetype ?: "application/octet-stream"
+            val content = attachment.content ?: return@forEachIndexed
+
+            // Строка файла с иконкой загрузки справа
+            val rowLayout = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                setPadding(0, 6, 0, 6)
+            }
+
+            val fileInfo = TextView(requireContext()).apply {
+                text = "📎 $fileName"
+                setTextColor(resources.getColor(R.color.text_primary, null))
+                textSize = 14f
+                layoutParams = LinearLayout.LayoutParams(
+                    0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    1f
+                )
+            }
+            rowLayout.addView(fileInfo)
+
+            val btnDownload = MaterialButton(requireContext()).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    resources.getDimensionPixelSize(R.dimen.attachment_icon_size),
+                    resources.getDimensionPixelSize(R.dimen.attachment_icon_size)
+                )
+                icon = resources.getDrawable(R.drawable.ic_download, requireContext().theme)
+                iconSize = 24
+                text = ""
+                setTextColor(resources.getColor(R.color.white, null))
+                backgroundTintList = resources.getColorStateList(R.color.secondary, null)
+                iconTint = resources.getColorStateList(R.color.white, null)
+                setOnClickListener {
+                    saveAndOpenAttachment(content, fileName, fileType)
+                }
+            }
+            rowLayout.addView(btnDownload)
+
+            binding.attachmentsContainer.addView(rowLayout)
+
+            // Разделитель (кроме последнего)
+            if (index < attachments.size - 1) {
+                val divider = View(requireContext()).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        1
+                    )
+                    setBackgroundColor(resources.getColor(R.color.divider, null))
+                    setPadding(0, 4, 0, 4)
+                }
+                binding.attachmentsContainer.addView(divider)
+            }
+        }
+    }
+
+    /**
+     * Определяет MIME-тип по расширению файла.
+     */
+    private fun getMimeTypeFromExtension(fileName: String): String? {
+        val ext = getExtensionFromFileName(fileName) ?: return null
+        return when (ext) {
+            "pdf" -> "application/pdf"
+            "jpg", "jpeg" -> "image/jpeg"
+            "png" -> "image/png"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "doc", "docx" -> "application/msword"
+            "xls", "xlsx" -> "application/vnd.ms-excel"
+            "txt" -> "text/plain"
+            "zip" -> "application/zip"
+            "mp4" -> "video/mp4"
+            "mp3" -> "audio/mpeg"
+            else -> null
+        }
+    }
+
+    /**
+     * Сохраняет вложение в Downloads, открывает через стандартное приложение.
+     * Сначала сохраняет во временный кэш для гарантированного открытия через FileProvider,
+     * затем в фоне копирует в папку Downloads.
+     */
+    private fun saveAndOpenAttachment(
+        base64Content: String,
+        fileName: String,
+        fileType: String
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Декодируем base64
+                val cleanBase64 = base64Content.substringAfter("base64,").trim()
+                val fileBytes = java.util.Base64.getMimeDecoder().decode(cleanBase64)
+
+                // Определяем корректный MIME-тип
+                val resolvedMimeType = getMimeTypeFromExtension(fileName)
+                    ?: if (fileType != "application/octet-stream") fileType
+                    else "application/octet-stream"
+
+                val safeFileName = fileName.replace(Regex("[^a-zA-Zа-яА-Я0-9._\\- ]"), "_")
+
+                // 1) Сохраняем во временный кэш для немедленного открытия
+                val cacheDir = File(requireContext().cacheDir, "attachments")
+                cacheDir.mkdirs()
+                val cacheFile = File(cacheDir, safeFileName)
+                FileOutputStream(cacheFile).use { fos ->
+                    fos.write(fileBytes)
+                    fos.flush()
+                }
+
+                // 2) В фоне копируем в Downloads для постоянного хранения
+                copyToDownloads(fileBytes, safeFileName, resolvedMimeType)
+
+                // 3) Открываем через FileProvider (гарантированно работает)
+                withContext(Dispatchers.Main) {
+                    if (!isAdded) return@withContext
+                    try {
+                        val uri = FileProvider.getUriForFile(
+                            requireContext(),
+                            "${requireContext().packageName}.fileprovider",
+                            cacheFile
+                        )
+                        val intent = Intent(Intent.ACTION_VIEW).apply {
+                            setDataAndType(uri, resolvedMimeType)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        // Пытаемся запустить — если нет приложения, вылетит исключение
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        // Если не удалось открыть — сообщаем, что файл сохранён
+                        AlertDialog.Builder(requireContext())
+                            .setTitle("Файл сохранён")
+                            .setMessage("Файл \"$fileName\" сохранён в папке Downloads. Откройте его через проводник.")
+                            .setPositiveButton("OK", null)
+                            .show()
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    if (!isAdded) return@withContext
+                    AlertDialog.Builder(requireContext())
+                        .setTitle("Ошибка")
+                        .setMessage("Не удалось сохранить или открыть файл: ${e.message}")
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    /**
+     * Копирует файл в папку Downloads в фоне.
+     */
+    private fun copyToDownloads(fileBytes: ByteArray, fileName: String, mimeType: String) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    val contentValues = ContentValues().apply {
+                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                        put(MediaStore.Downloads.MIME_TYPE, mimeType)
+                        put(MediaStore.Downloads.IS_PENDING, 1)
+                    }
+                    val resolver = requireContext().contentResolver
+                    val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, contentValues)
+                    if (uri != null) {
+                        resolver.openOutputStream(uri)?.use { os ->
+                            os.write(fileBytes)
+                            os.flush()
+                        }
+                        contentValues.clear()
+                        contentValues.put(MediaStore.Downloads.IS_PENDING, 0)
+                        resolver.update(uri, contentValues, null, null)
+                    }
+                } else {
+                    val downloadsDir = Environment.getExternalStoragePublicDirectory(
+                        Environment.DIRECTORY_DOWNLOADS
+                    )
+                    val file = File(downloadsDir, fileName)
+                    var targetFile = file
+                    var counter = 1
+                    while (targetFile.exists()) {
+                        val dotIndex = fileName.lastIndexOf('.')
+                        val baseName = if (dotIndex > 0) fileName.substring(0, dotIndex) else fileName
+                        val ext = if (dotIndex > 0) fileName.substring(dotIndex) else ""
+                        targetFile = File(downloadsDir, "${baseName}_($counter)$ext")
+                        counter++
+                    }
+                    FileOutputStream(targetFile).use { fos ->
+                        fos.write(fileBytes)
+                        fos.flush()
+                    }
+                }
+            } catch (_: Exception) {
+                // Файл уже есть в кэше — ошибка копирования не критична
+            }
+        }
+    }
+
+    private fun getExtensionFromFileName(fileName: String): String? {
+        val dotIndex = fileName.lastIndexOf('.')
+        return if (dotIndex >= 0 && dotIndex < fileName.length - 1) {
+            fileName.substring(dotIndex + 1).lowercase()
+        } else null
+    }
+
+    private fun getExtensionFromMimeType(mimeType: String): String? {
+        return when {
+            mimeType.contains("pdf") -> "pdf"
+            mimeType.contains("jpeg") || mimeType.contains("jpg") -> "jpg"
+            mimeType.contains("png") -> "png"
+            mimeType.contains("gif") -> "gif"
+            mimeType.contains("webp") -> "webp"
+            mimeType.contains("bmp") -> "bmp"
+            mimeType.contains("msword") || mimeType.contains("document") -> "docx"
+            mimeType.contains("spreadsheet") || mimeType.contains("excel") -> "xlsx"
+            mimeType.contains("text") -> "txt"
+            mimeType.contains("zip") -> "zip"
+            mimeType.contains("octet-stream") -> null
+            else -> null
         }
     }
 
@@ -361,7 +680,7 @@ class TaskDetailDialogFragment : DialogFragment() {
         }
     }
 
-    // ====================== Файлы ======================
+    // ====================== Файлы (для закрытия заявки) ======================
 
     private fun getFileExtension(uri: Uri): String {
         val context = requireContext()

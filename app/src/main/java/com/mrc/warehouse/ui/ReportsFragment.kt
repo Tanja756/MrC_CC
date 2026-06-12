@@ -8,11 +8,11 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.mrc.warehouse.R
+import com.mrc.warehouse.api.TaskItem
 import com.mrc.warehouse.util.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.*
 
 class ReportsFragment : Fragment() {
 
@@ -24,51 +24,48 @@ class ReportsFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_reports, container, false)
         val btnGenerate = view.findViewById<View>(R.id.btnGenerateTestReport)
         btnGenerate.setOnClickListener {
-            generateTestPdf()
+            generateActiveTasksReport()
         }
         return view
     }
 
-    private fun generateTestPdf() {
-        val report = IncidentReport(
-            incidentNumber = "ИНЦ-021543225",
-            date = Date(),
-            masterName = "Колебанов Сергей Васильевич",
-            arrivalTime = "10:00",
-            workTime = "1 час 30 мин",
-            objectNumber = "19785 31AT",
-            address = "ст-ца Дмитриевская, 50 лет ВЛКСМ ул 23",
-            callType = "РВР V",
-            additionalWork = "",
-            faults = listOf(
-                FaultItem(
-                    requestNumber = "Заявка №123",
-                    equipmentType = "ТСД/МРМ",
-                    faultReason = "Не включается, не заряжается",
-                    inventoryNumber = "INV-001",
-                    additionalNote = "ТСД/МРМ на Android не включается/не заряжается/механические проблемы"
-                )
-            ),
-            works = listOf(
-                WorkItem(1, "Замена аккумулятора", "шт", 1.0f),
-                WorkItem(2, "Прошивка ПО", "усл", 1.0f)
-            ),
-            materials = listOf(
-                MaterialItem(1, "Аккумулятор 3.7V", "шт", 1.0f),
-                MaterialItem(2, "Кабель USB", "шт", 1.0f)
-            )
-        )
-
+    private fun generateActiveTasksReport() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val file = PdfTemplateExporter.exportIncidentReport(
+                val session = SessionManager(requireContext())
+
+                // 1. Загружаем заявки в работе (статус не "Завершена")
+                val allTasks = session.getCachedTasksUser()
+                val activeTasks = allTasks.filter { task ->
+                    task.status != "Завершена" && task.status != "Закрыта"
+                }
+
+                // 2. Сортируем по сроку выполнения (сначала самые срочные)
+                val sortedTasks = activeTasks.sortedWith(
+                    compareBy<TaskItem> { dateToSortKey(it.period) }
+                        .thenByDescending { it.priority ?: 0 }
+                )
+
+                // 3. Получаем справочники
+                val clientsMap = session.clients
+                    .filter { it.guid != null && it.name != null && it.guid != "00000000-0000-0000-0000-000000000000" }
+                    .associate { it.guid!! to it.name!! }
+                val priorityMap = session.priorities
+                    .filter { it.value != null && it.name != null }
+                    .associate { it.value!! to it.name!! }
+
+                // 4. Генерируем PDF
+                val file = TasksReportExporter.exportTasksReport(
                     context = requireContext(),
-                    report = report,
+                    tasks = sortedTasks,
+                    clients = clientsMap,
+                    priorities = priorityMap,
                     authority = "${requireContext().packageName}.fileprovider"
                 )
+
                 withContext(Dispatchers.Main) {
-                    PdfTemplateExporter.sharePdf(
-                        context = requireContext(),
+                    TasksReportExporter.sharePdf(
+                        ctx = requireContext(),
                         file = file,
                         authority = "${requireContext().packageName}.fileprovider"
                     )
@@ -79,5 +76,18 @@ class ReportsFragment : Fragment() {
                 }
             }
         }
+    }
+
+    /** Convert "dd.MM.yyyy HH:mm:ss" → "yyyyMMddHHmmss" for correct string-based date sorting */
+    private fun dateToSortKey(dateStr: String?): String {
+        if (dateStr.isNullOrBlank()) return ""
+        return try {
+            val parts = dateStr.split(" ")
+            if (parts.size < 2) return dateStr
+            val dateParts = parts[0].split(".")
+            val timeParts = parts[1].split(":")
+            if (dateParts.size < 3 || timeParts.size < 2) return dateStr
+            "${dateParts[2]}${dateParts[1]}${dateParts[0]}${timeParts[0]}${timeParts[1]}${timeParts.getOrElse(2) { "00" }}"
+        } catch (e: Exception) { dateStr }
     }
 }

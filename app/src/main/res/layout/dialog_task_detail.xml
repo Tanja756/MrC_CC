@@ -142,7 +142,64 @@
 
     </LinearLayout>
 
-    <!-- Секция 4: Кнопки -->
+        <!-- Секция 4: Вложения (для закрытых заявок) -->
+    <LinearLayout
+        android:id="@+id/sectionAttachments"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="12dp"
+            android:background="@color/divider" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Вложения"
+            android:textColor="@color/text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnLoadAttachments"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginTop="8dp"
+            android:text="Загрузить вложения"
+            android:textAllCaps="false"
+            android:textColor="@color/primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            app:backgroundTint="@color/primary_surface"
+            app:cornerRadius="12dp"
+            app:icon="@android:drawable/ic_menu_gallery"
+            app:iconGravity="textStart"
+            app:iconSize="18dp"
+            app:iconTint="@color/primary" />
+
+        <ProgressBar
+            android:id="@+id/attachmentsProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/attachmentsContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+    </LinearLayout>
+
+    <!-- Секция 5: Кнопки -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -23,7 +23,8 @@ class TasksAdapter(
     private val onCompleteTaskClick: ((TaskItem) -> Unit)? = null,
     private val onViewTaskClick: ((TaskItem) -> Unit)? = null,
     private val onCardClick: ((TaskItem) -> Unit)? = null,
-    private val onPinToggle: ((TaskItem) -> Unit)? = null
+    private val onPinToggle: ((TaskItem) -> Unit)? = null,
+    private val onRequestDocumentsClick: ((TaskItem) -> Unit)? = null
 ) : RecyclerView.Adapter<TasksAdapter.TaskViewHolder>() {
 
     // Multi-select mode
@@ -312,6 +313,26 @@ class TasksAdapter(
                 binding.btnOpenDescription.setOnClickListener {
                     onDescriptionClick(task.description)
                 }
+            }
+
+            // ---- Request documents button (for user tasks "В работе") ----
+            if (onRequestDocumentsClick != null && task.guid != null) {
+                binding.ivRequestDocuments.visibility = View.VISIBLE
+                binding.ivRequestDocuments.setOnClickListener {
+                    onRequestDocumentsClick(task)
+                }
+            } else {
+                binding.ivRequestDocuments.visibility = View.GONE
+            }
+
+            // ---- Description indicator icon (for user tasks with description) ----
+            if (onCompleteTaskClick != null && !task.description.isNullOrBlank()) {
+                binding.ivDescriptionIndicator.visibility = View.VISIBLE
+                binding.ivDescriptionIndicator.setOnClickListener {
+                    onDescriptionClick(task.description)
+                }
+            } else {
+                binding.ivDescriptionIndicator.visibility = View.GONE
             }
         }
     }

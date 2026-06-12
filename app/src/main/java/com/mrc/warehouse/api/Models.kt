@@ -190,3 +190,20 @@ data class PprListResponse(
 data class PprDepartmentsResponse(
     val departments: List<String>? = null
 )
+
+// ===================== Documents API models =====================
+
+/** Request body for POST /api/tasks/documents */
+data class DocumentsRequest(
+    val guid: String,
+    val login: String,
+    val password: String,
+    @SerializedName("profile_name")
+    val profileName: String = "",
+    @SerializedName("include_act")
+    val includeAct: Boolean = true,
+    @SerializedName("include_fn")
+    val includeFn: Boolean = true,
+    @SerializedName("include_m15")
+    val includeM15: Boolean = true
+)

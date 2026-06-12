@@ -224,6 +224,31 @@
             android:layout_marginTop="12dp"
             android:orientation="horizontal">
 
+            <ImageButton
+                android:id="@+id/ivRequestDocuments"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:scaleType="centerInside"
+                android:visibility="gone"
+                android:src="@drawable/ic_download"
+                android:contentDescription="Запросить документы"
+                android:padding="8dp"
+                app:tint="@color/primary" />
+
+            <!-- Индикатор наличия описания (для заявок "В работе") -->
+            <ImageButton
+                android:id="@+id/ivDescriptionIndicator"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:scaleType="centerInside"
+                android:visibility="gone"
+                android:src="@drawable/ic_content_copy"
+                android:contentDescription="Описание"
+                android:padding="8dp"
+                app:tint="@color/primary" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnOpenDescription"
                 android:layout_width="0dp"
