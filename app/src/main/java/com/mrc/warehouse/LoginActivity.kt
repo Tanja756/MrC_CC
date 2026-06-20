@@ -1,5 +1,8 @@
 package com.mrc.warehouse
 
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
@@ -180,12 +183,17 @@ class LoginActivity : AppCompatActivity() {
             session.serverPort = etPort.text.toString().trim()
             session.dbName = etDbName.text.toString().trim()
 
-            session.dataChannel = if (cbUseYDisk.isChecked) 1 else 0
+            val useYDisk = cbUseYDisk.isChecked
+            session.dataChannel = if (useYDisk) 1 else 0
             session.proxyType = spinnerProxyType.selectedItemPosition
             session.proxyHost = etProxyHost.text.toString().trim()
             session.proxyPort = etProxyPort.text.toString().trim()
             session.proxyUser = etProxyUser.text.toString().trim()
             session.proxyPassword = etProxyPassword.text.toString().trim()
+
+            if (useYDisk) {
+                checkYandexCredentials()
+            }
 
             hideError()
         }
@@ -288,6 +296,40 @@ class LoginActivity : AppCompatActivity() {
             val products = client.getProducts()
             session.productsJson = Gson().toJson(products)
         } catch (_: Exception) {}
+    }
+
+    private fun checkYandexCredentials() {
+        // 1. Проверяем наличие credentials-файла в assets
+        val credentialsExist = try {
+            assets.open("yandex_credentials.properties").use { true }
+        } catch (e: Exception) {
+            false
+        }
+
+        if (!credentialsExist) {
+            AlertDialog.Builder(this, R.style.Theme_MrCWarehouse_Dialog)
+                .setTitle("Яндекс.Диск: требуется настройка")
+                .setMessage("Для работы с Яндекс.Диском необходимо добавить файл yandex_credentials.properties в папку assets приложения.\n\n" +
+                    "Обратитесь к разработчику за client_id и client_secret.")
+                .setPositiveButton("Понятно", null)
+                .show()
+            return
+        }
+
+        // 2. Проверяем наличие OAuth-токена Яндекс.Диска
+        val yandexPrefs: SharedPreferences = getSharedPreferences("yandex_disk", Context.MODE_PRIVATE)
+        val token = yandexPrefs.getString("access_token", null)
+
+        if (token.isNullOrEmpty()) {
+            AlertDialog.Builder(this, R.style.Theme_MrCWarehouse_Dialog)
+                .setTitle("Авторизация Яндекс.Диска")
+                .setMessage("Для обмена данными через Яндекс.Диск необходимо авторизоваться.\n\nПерейти к авторизации?")
+                .setPositiveButton("Перейти") { _, _ ->
+                    startActivity(Intent(this, DiskActivity::class.java))
+                }
+                .setNegativeButton("Позже", null)
+                .show()
+        }
     }
 
     private fun showError(msg: String) {
