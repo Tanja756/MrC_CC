@@ -36,3 +36,5 @@ google-services.json
 # Yandex OAuth credentials (client_id/client_secret)
 app/src/main/assets/yandex_credentials.properties
 data_example/
+# Python scripts with credentials
+fetch_data.py
