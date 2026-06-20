@@ -290,8 +290,8 @@ class SessionManager(context: Context) {
         return (result as? MutableMap<String, List<com.mrc.warehouse.api.StorageMovement>>) ?: mutableMapOf()
     }
 
-    /** Create OneSApiClient with current proxy settings */
-    fun createApiClient(): com.mrc.warehouse.api.OneSApiClient {
+    /** Create OneSApiClient with current proxy settings (прямой канал) */
+    fun createDirectApiClient(): com.mrc.warehouse.api.OneSApiClient {
         return com.mrc.warehouse.api.OneSApiClient(
             username, password, baseUrl, dbName,
             proxyHost = proxyHost,
@@ -373,6 +373,21 @@ class SessionManager(context: Context) {
         return sdf.format(java.util.Date(millis))
     }
 
+    // ===================== Data channel =====================
+
+    /** 0 = прямой запрос к 1С (OneSApiClient), 1 = Яндекс.Диск (YDskApiClient) */
+    var dataChannel: Int
+        get() = prefs.getInt(KEY_DATA_CHANNEL, 0)
+        set(value) { prefs.edit().putInt(KEY_DATA_CHANNEL, value).commit() }
+
+    /**
+     * Фабрика: создаёт клиент с учётом выбранного канала данных.
+     * YDskApiClient умеет сам делегировать неподдерживаемые методы на OneSApiClient.
+     */
+    fun createApiClient(context: android.content.Context): com.mrc.warehouse.api.YDskApiClient {
+        return com.mrc.warehouse.api.YDskApiClient(context, this)
+    }
+
     // ===================== Pinned tasks =====================
 
     /**
@@ -451,6 +466,9 @@ class SessionManager(context: Context) {
         // Rate limiting
         private const val KEY_LAST_AUTO_SYNC = "last_auto_sync_timestamp"
         private const val KEY_PENDING_FORCE_TASKS_REFRESH = "pending_force_tasks_refresh"
+
+        // Data channel
+        private const val KEY_DATA_CHANNEL = "data_channel"
 
         // Pinned tasks
         private const val KEY_PINNED_TASKS = "pinned_tasks"

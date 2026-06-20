@@ -177,7 +177,7 @@ class FreeTasksPollingService : Service() {
             val session = SessionManager(this)
             if (!session.isAuthenticated || !session.hasServerConfig) return
 
-            val client = session.createApiClient()
+            val client = session.createApiClient(this)
             val response = client.getTasksUnallocated()
             val tasks = response.tasks ?: emptyList()
             knownTaskGuids = tasks.mapNotNull { it.guid }.toMutableSet()
@@ -208,7 +208,7 @@ class FreeTasksPollingService : Service() {
             throw UnknownHostException("No network connection")
         }
 
-        val client = session.createApiClient()
+        val client = session.createApiClient(this)
 
         // === 1. Check for new free tasks ===
         checkFreeTasks(client, session)
@@ -233,7 +233,7 @@ class FreeTasksPollingService : Service() {
      * Проверяет заявки пользователя со сроком менее 2 часов.
      * Уведомление выдаётся однократно для каждой заявки.
      */
-    private fun checkUrgentUserTasks(client: OneSApiClient, session: SessionManager) {
+    private fun checkUrgentUserTasks(client: com.mrc.warehouse.api.YDskApiClient, session: SessionManager) {
         try {
             val response = client.getTasksUser()
             val tasks = response.tasks ?: emptyList()
@@ -314,7 +314,7 @@ class FreeTasksPollingService : Service() {
      * Проверяет свободные заявки со сроком менее 2 часов.
      * Уведомление выдаётся однократно для каждой заявки.
      */
-    private fun checkUrgentFreeTasks(client: OneSApiClient, session: SessionManager) {
+    private fun checkUrgentFreeTasks(client: com.mrc.warehouse.api.YDskApiClient, session: SessionManager) {
         try {
             val response = client.getTasksUnallocated()
             val tasks = response.tasks ?: emptyList()
@@ -375,7 +375,7 @@ class FreeTasksPollingService : Service() {
         nm.notify(URGENT_FREE_NOTIFICATION_ID + task.guid.hashCode(), notification)
     }
 
-    private fun checkFreeTasks(client: OneSApiClient, session: SessionManager) {
+    private fun checkFreeTasks(client: com.mrc.warehouse.api.YDskApiClient, session: SessionManager) {
         val response = client.getTasksUnallocated()
         val currentTasks = response.tasks ?: emptyList()
         val currentGuids = currentTasks.mapNotNull { it.guid }.toSet()
@@ -403,7 +403,7 @@ class FreeTasksPollingService : Service() {
         saveKnownGuids()
     }
 
-    private fun checkBalanceChanges(client: OneSApiClient, session: SessionManager) {
+    private fun checkBalanceChanges(client: com.mrc.warehouse.api.YDskApiClient, session: SessionManager) {
         val gson = Gson()
         val currentBalances = client.getBalances(session.monitoredStorageGuid)
         val currentBalanceMap = currentBalances

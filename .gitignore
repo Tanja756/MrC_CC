@@ -32,3 +32,7 @@ google-services.json
 
 # Android Profiling
 *.hprof
+
+# Yandex OAuth credentials (client_id/client_secret)
+app/src/main/assets/yandex_credentials.properties
+data_example/

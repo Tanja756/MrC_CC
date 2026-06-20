@@ -120,7 +120,7 @@ class WarehouseFragment : Fragment() {
 
             try {
                 if (NetworkUtil.isOnline(requireContext())) {
-                    val client = session.createApiClient()
+                    val client = session.createApiClient(requireContext())
                     val balances = client.getBalances(storage.guid ?: "")
 
                     session.setCachedBalances(storage.guid ?: "", balances)

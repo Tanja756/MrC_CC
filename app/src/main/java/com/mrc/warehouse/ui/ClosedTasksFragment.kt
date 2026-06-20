@@ -115,7 +115,7 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                     return@launch
                 }
 
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val response = client.getClosedTasksUser()
                 val serverTasks = response.tasks ?: emptyList<TaskItem>()
 
@@ -185,7 +185,7 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                     return@launch
                 }
 
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val response = client.getClosedTasksUser()
                 val serverTasks = response.tasks ?: emptyList<TaskItem>()
                 val serverJson = Gson().toJson(serverTasks)

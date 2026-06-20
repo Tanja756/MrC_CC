@@ -76,7 +76,7 @@ class SalaryFragment : Fragment() {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
                 if (NetworkUtil.isOnline(requireContext())) {
-                    val client = session.createApiClient()
+                    val client = session.createApiClient(requireContext())
                     val response = client.getSalary(startDate, endDate)
                     val data = response.data ?: emptyList()
                     val total = response.totalAmount ?: 0.0

@@ -211,7 +211,7 @@ class TaskDetailDialogFragment : DialogFragment() {
     private fun loadAttachments(guid: String) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val response = client.getTaskAttachments(guid)
                 val attachments = response?.attachments?.filter { it.content != null } ?: emptyList()
 
@@ -637,7 +637,7 @@ class TaskDetailDialogFragment : DialogFragment() {
     ) {
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val attachments = readAttachments()
 
                 val request = TaskCloseRequest(

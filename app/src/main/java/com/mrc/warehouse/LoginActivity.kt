@@ -119,12 +119,14 @@ class LoginActivity : AppCompatActivity() {
         val etPort = layout.findViewById<EditText>(R.id.etServerPort)
         val etDbName = layout.findViewById<EditText>(R.id.etDbName)
 
+        val cbUseYDisk = layout.findViewById<android.widget.CheckBox>(R.id.cbUseYDisk)
         val spinnerProxyType = layout.findViewById<Spinner>(R.id.spinnerProxyType)
         val etProxyHost = layout.findViewById<EditText>(R.id.etProxyHost)
         val etProxyPort = layout.findViewById<EditText>(R.id.etProxyPort)
         val etProxyUser = layout.findViewById<EditText>(R.id.etProxyUser)
         val etProxyPassword = layout.findViewById<EditText>(R.id.etProxyPassword)
 
+        cbUseYDisk.isChecked = session.dataChannel == 1
         etHost.setText(session.serverHost)
         etPort.setText(session.serverPort)
         etDbName.setText(session.dbName)
@@ -178,6 +180,7 @@ class LoginActivity : AppCompatActivity() {
             session.serverPort = etPort.text.toString().trim()
             session.dbName = etDbName.text.toString().trim()
 
+            session.dataChannel = if (cbUseYDisk.isChecked) 1 else 0
             session.proxyType = spinnerProxyType.selectedItemPosition
             session.proxyHost = etProxyHost.text.toString().trim()
             session.proxyPort = etProxyPort.text.toString().trim()

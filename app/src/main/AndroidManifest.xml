@@ -30,6 +30,11 @@
         </activity>
 
         <activity
+            android:name=".DiskActivity"
+            android:exported="false"
+            android:theme="@style/Theme.MrCWarehouse" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="false"
             android:theme="@style/Theme.MrCWarehouse" />

@@ -268,7 +268,7 @@ class TasksFragment : Fragment(), SearchSortCallback {
                     return@launch
                 }
 
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val response = client.getTasksUser()
                 val serverTasks = response.tasks ?: emptyList()
 
@@ -330,7 +330,7 @@ class TasksFragment : Fragment(), SearchSortCallback {
                     return@launch
                 }
 
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val response = client.getTasksUser()
                 val serverTasks = response.tasks ?: emptyList()
                 val serverJson = Gson().toJson(serverTasks)
@@ -597,7 +597,7 @@ class TasksFragment : Fragment(), SearchSortCallback {
         longitude: Double,
         loadingDialog: AlertDialog
     ) {
-        val client = session.createApiClient()
+        val client = session.createApiClient(requireContext())
 
         // Read selected files into base64 attachments
         val attachments = readAttachments()
@@ -754,7 +754,7 @@ class TasksFragment : Fragment(), SearchSortCallback {
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val zipBytes = client.getTaskDocuments(guid)
 
                 if (zipBytes == null || zipBytes.isEmpty()) {

@@ -142,7 +142,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
                     return@launch
                 }
 
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val response = client.getTasksUnallocated()
                 val serverTasks = response.tasks ?: emptyList<TaskItem>()
 
@@ -208,7 +208,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
                     return@launch
                 }
 
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val response = client.getTasksUnallocated()
                 val serverTasks = response.tasks ?: emptyList<TaskItem>()
                 val serverJson = Gson().toJson(serverTasks)
@@ -312,7 +312,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val client = session.createApiClient()
+                val client = session.createApiClient(requireContext())
                 val result = client.taskTake(guid)
 
                 withContext(Dispatchers.Main) {
@@ -339,7 +339,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
                                 isTakingTask = false
                                 lifecycleScope.launch(Dispatchers.IO) {
                                     try {
-                                        val c = session.createApiClient()
+                                        val c = session.createApiClient(requireContext())
                                         val resp = c.getTasksUnallocated()
                                         session.cachedTasksFreeJson = Gson().toJson(resp.tasks ?: emptyList<TaskItem>())
                                         session.updateSyncTimestamp()
@@ -484,7 +484,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
                     continue
                 }
                 try {
-                    val client = session.createApiClient()
+                    val client = session.createApiClient(requireContext())
                     val result = client.taskTake(guid)
                     if (result.error != null) {
                         failed++
@@ -530,7 +530,7 @@ class FreeTasksFragment : Fragment(), SearchSortCallback {
                     .setPositiveButton("OK") { _, _ ->
                         lifecycleScope.launch(Dispatchers.IO) {
                             try {
-                                val c = session.createApiClient()
+                                val c = session.createApiClient(requireContext())
                                 val resp = c.getTasksUnallocated()
                                 session.cachedTasksFreeJson = Gson().toJson(resp.tasks ?: emptyList<TaskItem>())
                                 session.updateSyncTimestamp()
