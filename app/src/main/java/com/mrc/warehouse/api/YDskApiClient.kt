@@ -7,8 +7,14 @@ import com.google.gson.reflect.TypeToken
 import com.mrc.warehouse.util.SessionManager
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
@@ -32,8 +38,13 @@ import java.util.concurrent.TimeUnit
  *
  * Неподдерживаемые методы делегируются на OneSApiClient (прямой HTTP-запрос к 1С):
  * - login(), getSalary(), getMovements()
- * - taskTake(), taskClose(), getTaskAttachments()
+ * - taskTake(), getTaskAttachments()
  * - PPR методы, getTaskDocuments()
+ *
+ * Запись на Яндекс.Диск (action):
+ * - taskClose() — при dataChannel == 1 формирует JSON-файл close_task_{guid}.json
+ *   и загружает его в папку /{login}/Action/ на Яндекс.Диск.
+ *   При dataChannel == 0 — делегирует на OneSApiClient.
  */
 class YDskApiClient(
     private val context: Context,
@@ -157,9 +168,41 @@ class YDskApiClient(
         return fallbackClient.taskTake(guid)
     }
 
-    /** Закрытие заявки (POST) */
+    /**
+     * Закрытие заявки.
+     * Если канал данных = 0 (прямой 1С) — делегирует на OneSApiClient.
+     * Если канал = 1 (Яндекс.Диск) — формирует JSON-файл и загружает
+     * в папку /{login}/Action/close_task_{GUID}.json на Яндекс.Диск.
+     * Сервер 1С подберёт этот файл, обработает и удалит.
+     */
     fun taskClose(requestBody: TaskCloseRequest): Boolean {
-        return fallbackClient.taskClose(requestBody)
+        // Прямой канал — делегируем на OneSApiClient
+        if (session.dataChannel == 0) {
+            return fallbackClient.taskClose(requestBody)
+        }
+
+        // Яндекс.Диск — пишем файл в папку Action
+        val token = yandexToken
+        if (token.isNullOrEmpty()) return false
+
+        val login = session.username
+        if (login.isBlank()) return false
+
+        return try {
+            val remoteDir = "/$login/Action"
+            val fileName = "close_task_${requestBody.guid}.json"
+
+            // 1. Создаём папку Action, если её нет
+            ensureFolderExists(token, remoteDir)
+
+            // 2. Формируем JSON-содержимое
+            val jsonContent = buildCloseJson(requestBody)
+
+            // 3. Загружаем файл на Яндекс.Диск
+            uploadJsonFile(token, "$remoteDir/$fileName", jsonContent)
+        } catch (e: Exception) {
+            false
+        }
     }
 
     /** Зарплата за период */
@@ -441,5 +484,95 @@ class YDskApiClient(
     fun invalidateCache() {
         cachedData = null
         lastCacheTime = 0
+    }
+
+    // ================ Запись файлов на Яндекс.Диск (action) ================
+
+    /**
+     * Формирует JSON-содержимое для файла close_task_{guid}.json
+     * Структура максимально приближена к тому, что отправляется в 1С через taskClose.
+     */
+    private fun buildCloseJson(request: TaskCloseRequest): String {
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+        val jsonObject = JsonObject().apply {
+            addProperty("action", "close_task")
+            addProperty("guid", request.guid)
+            addProperty("comment", request.comment)
+            addProperty("latitude", request.latitude)
+            addProperty("longitude", request.longitude)
+            addProperty("guid_doc", request.guidDoc)
+            addProperty("timestamp", dateFormat.format(Date()))
+
+            val servicesArr = JsonArray()
+            request.services.forEach { servicesArr.add(it) }
+            add("services", servicesArr)
+
+            val attachmentsArr = JsonArray()
+            request.attachments.forEach { att ->
+                val attObj = JsonObject().apply {
+                    addProperty("data", att.data)
+                    addProperty("extension", att.extension)
+                }
+                attachmentsArr.add(attObj)
+            }
+            add("attachments", attachmentsArr)
+        }
+        return gson.toJson(jsonObject)
+    }
+
+    /**
+     * Создаёт папку на Яндекс.Диске, если её ещё нет.
+     * Использует PUT /v1/disk/resources.
+     * 201 = создана, 409 = уже существует — оба варианта считаем успехом.
+     */
+    private fun ensureFolderExists(token: String, path: String) {
+        val encodedPath = java.net.URLEncoder.encode(path, "UTF-8")
+        val request = Request.Builder()
+            .url("https://cloud-api.yandex.net/v1/disk/resources?path=$encodedPath")
+            .put("".toRequestBody())
+            .addHeader("Authorization", "OAuth $token")
+            .build()
+
+        client.newCall(request).execute().use { response ->
+            if (response.code != 201 && response.code != 409) {
+                throw RuntimeException("Не удалось создать папку $path: HTTP ${response.code}")
+            }
+        }
+    }
+
+    /**
+     * Загружает JSON-строку как файл на Яндекс.Диск.
+     * 1. Получает upload URL через GET /v1/disk/resources/upload
+     * 2. PUT-запросом загружает содержимое
+     */
+    private fun uploadJsonFile(token: String, remotePath: String, jsonContent: String): Boolean {
+        return try {
+            // 1. Получаем URL для загрузки
+            val encodedPath = java.net.URLEncoder.encode(remotePath, "UTF-8")
+            val uploadUrlRequest = Request.Builder()
+                .url("https://cloud-api.yandex.net/v1/disk/resources/upload?path=$encodedPath&overwrite=true")
+                .get()
+                .addHeader("Authorization", "OAuth $token")
+                .build()
+
+            val uploadUrlResponse = client.newCall(uploadUrlRequest).execute()
+            if (!uploadUrlResponse.isSuccessful) return false
+
+            val body = uploadUrlResponse.body?.string() ?: return false
+            val href = JsonParser.parseString(body).asJsonObject.get("href")?.asString ?: return false
+
+            // 2. Загружаем содержимое по полученному URL
+            val mediaType = "application/json; charset=utf-8".toMediaType()
+            val jsonBody = jsonContent.toRequestBody(mediaType)
+            val uploadRequest = Request.Builder()
+                .url(href)
+                .put(jsonBody)
+                .build()
+
+            val uploadResponse = client.newCall(uploadRequest).execute()
+            uploadResponse.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
     }
 }
