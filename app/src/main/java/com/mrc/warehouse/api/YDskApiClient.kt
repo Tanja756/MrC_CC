@@ -190,7 +190,8 @@ class YDskApiClient(
 
         return try {
             val remoteDir = "/$login/Action"
-            val fileName = "close_task_${requestBody.guid}.json"
+            val loadingFileName = "close_task_${requestBody.guid}.loading"
+            val finalFileName = "close_task_${requestBody.guid}.json"
 
             // 1. Создаём папку Action, если её нет
             ensureFolderExists(token, remoteDir)
@@ -198,8 +199,12 @@ class YDskApiClient(
             // 2. Формируем JSON-содержимое
             val jsonContent = buildCloseJson(requestBody)
 
-            // 3. Загружаем файл на Яндекс.Диск
-            uploadJsonFile(token, "$remoteDir/$fileName", jsonContent)
+            // 3. Загружаем файл с временным именем .loading
+            val uploadSuccess = uploadJsonFile(token, "$remoteDir/$loadingFileName", jsonContent)
+            if (!uploadSuccess) return false
+
+            // 4. Переименовываем .loading → .json (сервер видит только готовый .json)
+            return renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
         } catch (e: Exception) {
             false
         }
@@ -571,6 +576,28 @@ class YDskApiClient(
 
             val uploadResponse = client.newCall(uploadRequest).execute()
             uploadResponse.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Переименовывает (перемещает) файл на Яндекс.Диске.
+     * Использует PATCH /v1/disk/resources/move.
+     * 201 = перемещён, 202 = принято в обработку — оба считаем успехом.
+     */
+    private fun renameFile(token: String, fromPath: String, toPath: String): Boolean {
+        return try {
+            val encodedFrom = java.net.URLEncoder.encode(fromPath, "UTF-8")
+            val encodedTo = java.net.URLEncoder.encode(toPath, "UTF-8")
+            val request = Request.Builder()
+                .url("https://cloud-api.yandex.net/v1/disk/resources/move?from=$encodedFrom&path=$encodedTo&overwrite=true")
+                .addHeader("Authorization", "OAuth $token")
+                .patch("".toRequestBody())
+                .build()
+
+            val response = client.newCall(request).execute()
+            response.code in listOf(201, 202)
         } catch (e: Exception) {
             false
         }
