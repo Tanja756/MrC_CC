@@ -18,14 +18,16 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /**
- * API-клиент, который загружает данные с Яндекс.Диска из трёх JSON-файлов,
+ * API-клиент, который загружает данные с Яндекс.Диска из JSON-файлов,
  * выгруженных с 1С сервера.
  *
  * Файлы на диске (обновляются сервером раз в ~10 мин):
- * - /{login}/hashes.json      → хеши данных (сверяем, чтобы не грузить неизменённые файлы)
- * - /{login}/references.json  → справочники: склады, товары, клиенты
- * - /{login}/tasks.json       → задачи: user, free, closed
- * - /{login}/warehouse.json   → остатки по складам (ключ — GUID склада)
+ * - /{login}/hashes.json           → хеши данных (сверяем, чтобы не грузить неизменённые файлы)
+ * - /{login}/references.json       → справочники: склады, товары, клиенты
+ * - /{login}/tasks_user.json       → задачи пользователя (в работе): {"docs": [...], "tasks": [...]}
+ * - /{login}/tasks_free.json       → свободные (нераспределённые) задачи
+ * - /{login}/tasks_closed.json     → закрытые заявки пользователя
+ * - /{login}/warehouse.json        → остатки по складам (ключ — GUID склада)
  *
  * Поддерживаемые методы (читаются из кэшированных JSON):
  * - getStorages()
@@ -83,7 +85,7 @@ class YDskApiClient(
         val clients: List<ClientItem>?
     )
 
-    /** Задачи (из tasks.json) */
+    /** Задачи (из трёх файлов: tasks_user.json, tasks_free.json, tasks_closed.json) */
     private data class CachedTasksData(
         val tasksUser: TasksResponse?,
         val tasksUnallocated: TasksResponse?,
@@ -98,13 +100,6 @@ class YDskApiClient(
         val warehouse: Map<String, List<BalanceItem>>?,
         /** Хеши файлов из hashes.json для определения изменений */
         val cachedHashes: Map<String, String>? = null
-    )
-
-    /** Временная структура для парсинга tasks.json */
-    private data class TasksFileStructure(
-        val user: TasksResponse? = null,
-        val free: TasksResponse? = null,
-        val closed: TasksResponse? = null
     )
 
     // ================ Публичные методы (поддерживаемые) ================
@@ -163,9 +158,62 @@ class YDskApiClient(
 
     // ================ Fallback-методы (делегируются на OneSApiClient) ================
 
-    /** Взятие свободной заявки (POST) */
+    /**
+     * Взятие свободной заявки.
+     * Если канал данных = 0 (прямой 1С) — делегирует на OneSApiClient.
+     * Если канал = 1 (Яндекс.Диск) — формирует JSON-файл и загружает
+     * в папку /{login}/Action/take_task_{GUID}.json на Яндекс.Диск.
+     * Сервер 1С подберёт этот файл, обработает и удалит.
+     */
     fun taskTake(guid: String): TaskTakeResponse {
-        return fallbackClient.taskTake(guid)
+        // Прямой канал — делегируем на OneSApiClient
+        if (session.dataChannel == 0) {
+            return fallbackClient.taskTake(guid)
+        }
+
+        // Яндекс.Диск — пишем файл в папку Action
+        val token = yandexToken
+        if (token.isNullOrEmpty()) return TaskTakeResponse(error = "Нет токена Яндекс.Диска")
+
+        val login = session.username
+        if (login.isBlank()) return TaskTakeResponse(error = "Пользователь не авторизован")
+
+        return try {
+            val remoteDir = "/$login/Action"
+            val loadingFileName = "take_task_${guid}.loading"
+            val finalFileName = "take_task_${guid}.json"
+
+            // 1. Создаём папку Action, если её нет
+            ensureFolderExists(token, remoteDir)
+
+            // 2. Формируем JSON-содержимое
+            val jsonContent = buildTakeTaskJson(guid)
+
+            // 3. Загружаем файл с временным именем .loading
+            val uploadSuccess = uploadJsonFile(token, "$remoteDir/$loadingFileName", jsonContent)
+            if (!uploadSuccess) return TaskTakeResponse(error = "Ошибка загрузки файла")
+
+            // 4. Небольшая задержка, чтобы Яндекс.Диск обработал загруженный файл
+            Thread.sleep(500)
+
+            // 5. Переименовываем .loading → .json (сервер видит только готовый .json)
+            //    С несколькими попытками, так как rename может не успеть с первого раза
+            var renameSuccess = renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
+            var attempts = 0
+            while (!renameSuccess && attempts < 3) {
+                Thread.sleep(1000)
+                renameSuccess = renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
+                attempts++
+            }
+
+            if (renameSuccess) {
+                TaskTakeResponse(status = "Выполнить")
+            } else {
+                TaskTakeResponse(error = "Ошибка переименования файла")
+            }
+        } catch (e: Exception) {
+            TaskTakeResponse(error = e.message ?: "Неизвестная ошибка")
+        }
     }
 
     /**
@@ -203,8 +251,19 @@ class YDskApiClient(
             val uploadSuccess = uploadJsonFile(token, "$remoteDir/$loadingFileName", jsonContent)
             if (!uploadSuccess) return false
 
-            // 4. Переименовываем .loading → .json (сервер видит только готовый .json)
-            return renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
+            // 4. Небольшая задержка, чтобы Яндекс.Диск обработал загруженный файл
+            Thread.sleep(500)
+
+            // 5. Переименовываем .loading → .json (сервер видит только готовый .json)
+            //    С несколькими попытками, так как rename может не успеть с первого раза
+            var renameSuccess = renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
+            var attempts = 0
+            while (!renameSuccess && attempts < 3) {
+                Thread.sleep(1000)
+                renameSuccess = renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
+                attempts++
+            }
+            return renameSuccess
         } catch (e: Exception) {
             false
         }
@@ -266,6 +325,11 @@ class YDskApiClient(
      * 1. Загружаем hashes.json
      * 2. Сравниваем хеши с сохранёнными — если не изменились, пропускаем загрузку
      * 3. Если хеш изменился (или нет кэша) — загружаем только изменившиеся файлы
+     *
+     * Файлы задач загружаются по отдельности:
+     * - tasks_user.json   → задачи пользователя (в работе)
+     * - tasks_free.json   → свободные (нераспределённые) задачи
+     * - tasks_closed.json → закрытые заявки пользователя
      */
     private fun ensureCache(): CachedDiskData? {
         // Если канал = 0 (прямой 1С), не используем диск
@@ -302,11 +366,17 @@ class YDskApiClient(
             }
 
             // 4. Определяем, какие файлы нужно загрузить
-            // Если кэша нет или hashes.json не загрузился — грузим всё
+            //    Если кэша нет или hashes.json не загрузился — грузим всё
             val shouldLoadReferences = newHashes == null || oldHashes == null ||
                 newHashes["references.json"] != oldHashes["references.json"]
-            val shouldLoadTasks = newHashes == null || oldHashes == null ||
-                newHashes["tasks.json"] != oldHashes["tasks.json"]
+
+            val shouldLoadTasksUser = newHashes == null || oldHashes == null ||
+                newHashes["tasks_user.json"] != oldHashes["tasks_user.json"]
+            val shouldLoadTasksFree = newHashes == null || oldHashes == null ||
+                newHashes["tasks_free.json"] != oldHashes["tasks_free.json"]
+            val shouldLoadTasksClosed = newHashes == null || oldHashes == null ||
+                newHashes["tasks_closed.json"] != oldHashes["tasks_closed.json"]
+
             val shouldLoadWarehouse = newHashes == null || oldHashes == null ||
                 newHashes["warehouse.json"] != oldHashes["warehouse.json"]
 
@@ -317,12 +387,33 @@ class YDskApiClient(
                 cachedData?.references
             }
 
-            val tasks = if (shouldLoadTasks) {
-                val content = downloadFileFromDisk(token, login, "tasks.json")
-                if (content != null) parseTasksData(content) else cachedData?.tasks
+            // Загружаем каждый файл задач отдельно
+            val tasksUser = if (shouldLoadTasksUser) {
+                val content = downloadFileFromDisk(token, login, "tasks_user.json")
+                if (content != null) parseTaskResponse(content) else cachedData?.tasks?.tasksUser
             } else {
-                cachedData?.tasks
+                cachedData?.tasks?.tasksUser
             }
+
+            val tasksFree = if (shouldLoadTasksFree) {
+                val content = downloadFileFromDisk(token, login, "tasks_free.json")
+                if (content != null) parseTaskResponse(content) else cachedData?.tasks?.tasksUnallocated
+            } else {
+                cachedData?.tasks?.tasksUnallocated
+            }
+
+            val tasksClosed = if (shouldLoadTasksClosed) {
+                val content = downloadFileFromDisk(token, login, "tasks_closed.json")
+                if (content != null) parseTaskResponse(content) else cachedData?.tasks?.tasksClosed
+            } else {
+                cachedData?.tasks?.tasksClosed
+            }
+
+            val tasks = CachedTasksData(
+                tasksUser = tasksUser,
+                tasksUnallocated = tasksFree,
+                tasksClosed = tasksClosed
+            )
 
             val warehouse = if (shouldLoadWarehouse) {
                 val content = downloadFileFromDisk(token, login, "warehouse.json")
@@ -434,7 +525,7 @@ class YDskApiClient(
 
     /**
      * Парсит hashes.json → Map<String, String>
-     * Структура: {"references.json": "sha256", "tasks.json": "sha256", "warehouse.json": "sha256"}
+     * Структура: {"references.json": "sha256", "tasks_user.json": "sha256", ...}
      */
     private fun parseHashesData(jsonContent: String): Map<String, String>? {
         return try {
@@ -446,18 +537,13 @@ class YDskApiClient(
     }
 
     /**
-     * Парсит tasks.json → CachedTasksData
-     * Структура: { "user": TasksResponse, "free": TasksResponse, "closed": TasksResponse }
+     * Парсит JSON-файл задачи (tasks_user.json / tasks_free.json / tasks_closed.json)
+     * в TasksResponse. Каждый файл содержит полный ответ 1С:
+     * {"docs": [...], "tasks": [...]}
      */
-    private fun parseTasksData(jsonContent: String): CachedTasksData? {
+    private fun parseTaskResponse(jsonContent: String): TasksResponse? {
         return try {
-            val root = gson.fromJson(jsonContent, TasksFileStructure::class.java) ?: return null
-
-            CachedTasksData(
-                tasksUser = root.user,
-                tasksUnallocated = root.free,
-                tasksClosed = root.closed
-            )
+            gson.fromJson(jsonContent, TasksResponse::class.java)
         } catch (e: Exception) {
             null
         }
@@ -492,6 +578,22 @@ class YDskApiClient(
     }
 
     // ================ Запись файлов на Яндекс.Диск (action) ================
+
+    /**
+     * Формирует JSON-содержимое для файла take_task_{guid}.json
+     * Структура:
+     * {
+     *   "action": "take_task",
+     *   "guid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+     * }
+     */
+    private fun buildTakeTaskJson(guid: String): String {
+        val jsonObject = JsonObject().apply {
+            addProperty("action", "take_task")
+            addProperty("guid", guid)
+        }
+        return gson.toJson(jsonObject)
+    }
 
     /**
      * Формирует JSON-содержимое для файла close_task_{guid}.json
@@ -583,7 +685,7 @@ class YDskApiClient(
 
     /**
      * Переименовывает (перемещает) файл на Яндекс.Диске.
-     * Использует PATCH /v1/disk/resources/move.
+     * Использует POST /v1/disk/resources/move.
      * 201 = перемещён, 202 = принято в обработку — оба считаем успехом.
      */
     private fun renameFile(token: String, fromPath: String, toPath: String): Boolean {
@@ -593,7 +695,7 @@ class YDskApiClient(
             val request = Request.Builder()
                 .url("https://cloud-api.yandex.net/v1/disk/resources/move?from=$encodedFrom&path=$encodedTo&overwrite=true")
                 .addHeader("Authorization", "OAuth $token")
-                .patch("".toRequestBody())
+                .post("".toRequestBody())
                 .build()
 
             val response = client.newCall(request).execute()
