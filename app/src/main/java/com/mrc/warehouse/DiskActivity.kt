@@ -2,8 +2,10 @@ package com.mrc.warehouse
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
+import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
@@ -45,8 +47,6 @@ class DiskActivity : AppCompatActivity() {
         binding = ActivityDiskBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.tvLog.movementMethod = ScrollingMovementMethod()
-
         session = SessionManager(this)
 
         updateTokenStatus()
@@ -56,27 +56,6 @@ class DiskActivity : AppCompatActivity() {
             startAuth()
         }
 
-        binding.btnRead.setOnClickListener {
-            log("Нажатие: Прочитать")
-            val login = session.username
-            if (login.isBlank()) {
-                log("Ошибка: нет логина 1С")
-                return@setOnClickListener
-            }
-            readCredentialsFromDisk(login)
-        }
-
-        binding.btnWrite.setOnClickListener {
-            log("Нажатие: Записать")
-            val login = session.username
-            val password = session.password
-            if (login.isBlank() || password.isBlank()) {
-                log("Ошибка: нет данных для входа в 1С (логин/пароль пусты)")
-                return@setOnClickListener
-            }
-            log("Логин 1С: $login")
-            writeCredentialsToDisk(login, password)
-        }
     }
 
     /**
@@ -101,15 +80,6 @@ class DiskActivity : AppCompatActivity() {
     }
 
     private fun log(msg: String) {
-        runOnUiThread {
-            val current = binding.tvLog.text.toString()
-            val timestamp = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale("ru"))
-                .format(java.util.Date())
-            val newLine = "[$timestamp] $msg"
-            binding.tvLog.text = if (current.isEmpty()) newLine else "$current\n$newLine"
-            // Scroll to bottom
-            binding.tvLog.post { binding.svLog?.fullScroll(android.view.View.FOCUS_DOWN) }
-        }
     }
 
     private fun updateTokenStatus() {
@@ -117,15 +87,11 @@ class DiskActivity : AppCompatActivity() {
         if (token != null && token.isNotEmpty()) {
             binding.tvTokenStatus.text = "Авторизован"
             binding.tvTokenStatus.setTextColor(0xFF4CAF50.toInt())
-            binding.btnRead.isEnabled = true
-            binding.btnWrite.isEnabled = true
             binding.btnAuthorize.text = "Сменить аккаунт"
             log("Яндекс.Диск: авторизован (токен есть)")
         } else {
             binding.tvTokenStatus.text = "Не авторизован"
             binding.tvTokenStatus.setTextColor(0xFFFF5252.toInt())
-            binding.btnRead.isEnabled = false
-            binding.btnWrite.isEnabled = false
             binding.btnAuthorize.text = "Авторизоваться"
             log("Яндекс.Диск: не авторизован")
         }
@@ -133,6 +99,13 @@ class DiskActivity : AppCompatActivity() {
 
     private fun startAuth() {
         log("Запуск OAuth-авторизации Яндекс.Диска")
+
+        // Очищаем куки WebView, чтобы можно было войти в другой аккаунт Яндекса
+        CookieManager.getInstance().removeAllCookies(null)
+        CookieManager.getInstance().flush()
+        binding.webViewAuth.clearCache(true)
+        binding.webViewAuth.clearHistory()
+
         binding.webViewAuth.visibility = android.view.View.VISIBLE
         binding.webViewAuth.settings.javaScriptEnabled = true
         binding.webViewAuth.webViewClient = object : WebViewClient() {

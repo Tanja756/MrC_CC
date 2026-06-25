@@ -34,32 +34,6 @@
         android:layout_gravity="center_horizontal"
         android:layout_marginBottom="16dp" />
 
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="16dp">
-
-        <Button
-            android:id="@+id/btnRead"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Прочитать"
-            android:enabled="false"
-            android:layout_marginEnd="16dp"
-            style="@style/Widget.Material3.Button" />
-
-        <Button
-            android:id="@+id/btnWrite"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Записать"
-            android:enabled="false"
-            style="@style/Widget.Material3.Button" />
-
-    </LinearLayout>
-
     <WebView
         android:id="@+id/webViewAuth"
         android:layout_width="match_parent"
@@ -67,33 +41,5 @@
         android:layout_weight="1"
         android:visibility="gone"
         android:layout_marginTop="8dp" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Лог:"
-        android:textSize="12sp"
-        android:textColor="@color/text_primary"
-        android:textStyle="bold"
-        android:paddingHorizontal="16dp" />
-
-    <ScrollView
-        android:id="@+id/svLog"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:paddingHorizontal="16dp"
-        android:paddingBottom="8dp">
-
-        <TextView
-            android:id="@+id/tvLog"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textSize="11sp"
-            android:textColor="@color/text_secondary"
-            android:fontFamily="monospace" />
-
-    </ScrollView>
 
 </LinearLayout>

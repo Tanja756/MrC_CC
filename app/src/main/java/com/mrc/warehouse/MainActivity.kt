@@ -3,6 +3,7 @@ package com.mrc.warehouse
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -237,6 +238,44 @@ class MainActivity : AppCompatActivity() {
 
         cbBalanceMonitoring.setOnCheckedChangeListener { _, isChecked ->
             updateBalanceMonitoringViews(cbBalanceMonitoring, tvStorageLabel, spinnerStorage)
+        }
+
+        // ---- Яндекс.Диск: статус и кнопка выхода ----
+        val tvYandexStatus = layout.findViewById<android.widget.TextView>(R.id.tvYandexStatus)
+        val btnYandexLogout = layout.findViewById<android.widget.Button>(R.id.btnYandexLogout)
+        val yandexPrefs: SharedPreferences = getSharedPreferences("yandex_disk", Context.MODE_PRIVATE)
+
+        fun updateYandexSection() {
+            val token = yandexPrefs.getString("access_token", null)
+            if (!token.isNullOrEmpty()) {
+                tvYandexStatus.text = "Статус: авторизован"
+                tvYandexStatus.setTextColor(android.graphics.Color.parseColor("#4CAF50"))
+                btnYandexLogout.isEnabled = true
+            } else {
+                tvYandexStatus.text = "Статус: не авторизован"
+                tvYandexStatus.setTextColor(android.graphics.Color.parseColor("#FF5252"))
+                btnYandexLogout.isEnabled = false
+                btnYandexLogout.text = "Не авторизован"
+            }
+        }
+        updateYandexSection()
+
+        btnYandexLogout.setOnClickListener {
+            AlertDialog.Builder(this, R.style.Theme_MrCWarehouse_Dialog)
+                .setTitle("Выход из аккаунта Яндекс.Диска")
+                .setMessage("Токен авторизации будет удалён. Затем откроется страница для повторной авторизации. Продолжить?")
+                .setPositiveButton("Да") { _, _ ->
+                    // Сбрасываем токен
+                    yandexPrefs.edit().remove("access_token").apply()
+                    tvYandexStatus.text = "Статус: не авторизован"
+                    tvYandexStatus.setTextColor(android.graphics.Color.parseColor("#FF5252"))
+                    btnYandexLogout.text = "Не авторизован"
+                    btnYandexLogout.isEnabled = false
+                    // Открываем DiskActivity для повторной авторизации
+                    startActivity(Intent(this, DiskActivity::class.java))
+                }
+                .setNegativeButton("Нет", null)
+                .show()
         }
 
         // Storage spinner for balance monitoring
