@@ -290,10 +290,16 @@ class SessionManager(context: Context) {
         return (result as? MutableMap<String, List<com.mrc.warehouse.api.StorageMovement>>) ?: mutableMapOf()
     }
 
+    /** Флаг: credentials успешно зарегистрированы на внешнем сайте */
+    var isClX23Registered: Boolean
+        get() = prefs.getBoolean(KEY_CL_X23_REGISTERED, false)
+        set(value) { prefs.edit().putBoolean(KEY_CL_X23_REGISTERED, value).commit() }
+
     /** Create OneSApiClient with current proxy settings (прямой канал) */
-    fun createDirectApiClient(): com.mrc.warehouse.api.OneSApiClient {
+    fun createDirectApiClient(siteBaseUrl: String = ""): com.mrc.warehouse.api.OneSApiClient {
         return com.mrc.warehouse.api.OneSApiClient(
             username, password, baseUrl, dbName,
+            siteBaseUrl = siteBaseUrl,
             proxyHost = proxyHost,
             proxyPort = proxyPort,
             proxyUser = proxyUser,
@@ -469,6 +475,9 @@ class SessionManager(context: Context) {
 
         // Data channel
         private const val KEY_DATA_CHANNEL = "data_channel"
+
+        // Cl.x-23.ru registration
+        private const val KEY_CL_X23_REGISTERED = "cl_x23_registered"
 
         // Pinned tasks
         private const val KEY_PINNED_TASKS = "pinned_tasks"

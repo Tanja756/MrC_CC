@@ -142,7 +142,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
-                    android:text="Обмен данными через Я.Диск, включите если есть ограничения связи. ВНИМАНИЕ: Требуется предварительная авторизация в приложении и на https://cl.x-23.ru"
+                    android:text="Обмен данными через Я.Диск, включите если есть ограничения связи. ВНИМАНИЕ: Требуется предварительная авторизация в приложении и на внешнем сайте"
                     android:textColor="@color/text_hint"
                     android:textSize="12sp" />
 

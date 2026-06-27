@@ -25,6 +25,7 @@ class OneSApiClient(
     private val password: String,
     private val baseUrl: String,
     private val dbName: String,
+    private val siteBaseUrl: String = "", // базовый URL внешнего сайта
     private val proxyHost: String = "",
     private val proxyPort: String = "",
     private val proxyUser: String = "",
@@ -299,16 +300,83 @@ class OneSApiClient(
         }
     }
 
-    // ===================== Documents API =====================
+    // ===================== Site API =====================
+
+    /**
+     * Создаёт OkHttpClient для запросов к внешнему сайту (без Basic Auth).
+     * Используется для registerCredentialsOnSite() и getTaskDocuments().
+     */
+    private fun buildSiteClient(): OkHttpClient {
+        val builder = OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+
+        // Применяем настройки прокси (если настроены)
+        if ((proxyType != 0) && (proxyHost.isNotBlank() && proxyPort.isNotBlank())) {
+            val port = proxyPort.toIntOrNull() ?: 0
+            if (port > 0) {
+                val proxyTypeJava = when (proxyType) {
+                    2 -> Proxy.Type.SOCKS
+                    else -> Proxy.Type.HTTP
+                }
+                val proxy = Proxy(proxyTypeJava, InetSocketAddress(proxyHost, port))
+                builder.proxy(proxy)
+
+                if (proxyUser.isNotBlank()) {
+                    builder.proxyAuthenticator { _, response ->
+                        val credential = okhttp3.Credentials.basic(proxyUser, proxyPassword)
+                        response.request.newBuilder()
+                            .header("Proxy-Authorization", credential)
+                            .build()
+                    }
+                }
+            }
+        }
+
+        return builder.build()
+    }
+
+    /**
+     * Регистрирует credentials пользователя на внешнем сайте.
+     * POST {siteBaseUrl}/api/register-credentials
+     * Вызывается после успешной OAuth-авторизации Яндекс.Диска.
+     */
+    fun registerCredentialsOnSite(): Boolean {
+        if (siteBaseUrl.isBlank()) return false
+        val url = "$siteBaseUrl/api/register-credentials"
+        val requestBody = ClX23RegisterRequest(
+            username = username,
+            password = password
+        )
+        val json = gson.toJson(requestBody)
+        val mediaType = "application/json".toMediaType()
+        val body = json.toRequestBody(mediaType)
+
+        val tempClient = buildSiteClient()
+        val request = Request.Builder()
+            .url(url)
+            .header("Content-Type", "application/json")
+            .post(body)
+            .build()
+
+        return try {
+            val response = tempClient.newCall(request).execute()
+            response.isSuccessful
+        } catch (e: Exception) {
+            false
+        }
+    }
 
     /**
      * Запросить zip-архив с PDF-документами (АВР, ФН, М15) по задаче.
-     * POST https://cl.x-23.ru/api/tasks/documents
+     * POST {siteBaseUrl}/api/tasks/documents
      *
      * @return ByteArray с содержимым zip-архива, или null при ошибке
      */
     fun getTaskDocuments(guid: String): ByteArray? {
-        val url = "https://cl.x-23.ru/api/tasks/documents"
+        if (siteBaseUrl.isBlank()) throw RuntimeException("siteBaseUrl не настроен")
+        val url = "$siteBaseUrl/api/tasks/documents"
         val requestBody = DocumentsRequest(
             guid = guid,
             login = username,
@@ -321,36 +389,7 @@ class OneSApiClient(
         val mediaType = "application/json".toMediaType()
         val body = json.toRequestBody(mediaType)
 
-        // Создаём отдельный клиент без Basic Auth для этого запроса
-        val docClientBuilder = OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
-
-        // Применяем настройки прокси (если настроены)
-        if ((proxyType != 0) && (proxyHost.isNotBlank() && proxyPort.isNotBlank())) {
-            val port = proxyPort.toIntOrNull() ?: 0
-            if (port > 0) {
-                val proxyTypeJava = when (proxyType) {
-                    2 -> Proxy.Type.SOCKS
-                    else -> Proxy.Type.HTTP
-                }
-                val proxy = Proxy(proxyTypeJava, InetSocketAddress(proxyHost, port))
-                docClientBuilder.proxy(proxy)
-
-                if (proxyUser.isNotBlank()) {
-                    docClientBuilder.proxyAuthenticator { _, response ->
-                        val credential = okhttp3.Credentials.basic(proxyUser, proxyPassword)
-                        response.request.newBuilder()
-                            .header("Proxy-Authorization", credential)
-                            .build()
-                    }
-                }
-            }
-        }
-
-        val docClient = docClientBuilder.build()
-
+        val docClient = buildSiteClient()
         val request = Request.Builder()
             .url(url)
             .header("Content-Type", "application/json")

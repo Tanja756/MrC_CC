@@ -9,6 +9,8 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import com.mrc.warehouse.api.ClX23Config
+import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.databinding.ActivityDiskBinding
 import com.mrc.warehouse.util.SessionManager
 import okhttp3.MediaType.Companion.toMediaType
@@ -172,7 +174,11 @@ class DiskActivity : AppCompatActivity() {
                     if (accessToken.isNotEmpty()) {
                         prefs.edit().putString(PREF_ACCESS_TOKEN, accessToken).apply()
                         log("Токен успешно получен и сохранён")
-                        runOnUiThread { updateTokenStatus() }
+                        runOnUiThread {
+                            updateTokenStatus()
+                            // После OAuth регистрируем credentials на внешнем сайте
+                            registerCredentialsOnSite()
+                        }
                     } else {
                         log("Ошибка: токен не найден в ответе: $body")
                     }
@@ -364,6 +370,44 @@ class DiskActivity : AppCompatActivity() {
                 response.close()
             }
         })
+    }
+
+    /**
+     * Регистрирует credentials (логин/пароль от 1С) на внешнем сайте.
+     * Вызывается после успешного OAuth.
+     * Если запрос не удался — просто логируем, повторится при следующем запуске.
+     */
+    private fun registerCredentialsOnSite() {
+        val login = session.username
+        val password = session.password
+        if (login.isBlank() || password.isBlank()) return
+
+        val siteBaseUrl = ClX23Config.load(this).baseUrl
+        if (siteBaseUrl.isBlank()) return
+
+        val apiClient = OneSApiClient(
+            username = login,
+            password = password,
+            baseUrl = session.baseUrl,
+            dbName = session.dbName,
+            siteBaseUrl = siteBaseUrl,
+            proxyHost = session.proxyHost,
+            proxyPort = session.proxyPort,
+            proxyUser = session.proxyUser,
+            proxyPassword = session.proxyPassword,
+            proxyType = session.proxyType
+        )
+
+        // Выполняем в фоновом потоке
+        Thread {
+            val success = apiClient.registerCredentialsOnSite()
+            if (success) {
+                session.isClX23Registered = true
+                log("Credentials успешно зарегистрированы на внешнем сайте")
+            } else {
+                log("Не удалось зарегистрировать credentials на внешнем сайте (повторится при следующем запуске)")
+            }
+        }.start()
     }
 
     private fun uploadFile(uploadUrl: String, content: String, login: String) {

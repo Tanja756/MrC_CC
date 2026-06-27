@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.gson.Gson
+import com.mrc.warehouse.api.ClX23Config
 import com.mrc.warehouse.api.OneSApiClient
 import com.mrc.warehouse.databinding.ActivityLoginBinding
 import com.mrc.warehouse.util.NetworkUtil
@@ -83,6 +84,16 @@ class LoginActivity : AppCompatActivity() {
             val savedUser = session.username
             if (savedUser.isNotEmpty()) {
                 showSavedSession(savedUser)
+                // Если канал Яндекс.Диск и ещё не зарегистрированы на внешнем сайте — повторяем
+                if (session.dataChannel == 1 && !session.isClX23Registered) {
+                    val yandexToken = getSharedPreferences("yandex_disk", Context.MODE_PRIVATE)
+                        .getString("access_token", null)
+                    if (!yandexToken.isNullOrEmpty()) {
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            registerOnSite()
+                        }
+                    }
+                }
             } else {
                 showLoginForm()
             }
@@ -111,6 +122,10 @@ class LoginActivity : AppCompatActivity() {
         binding.etPassword.setText("")
         hideError()
         session.clear()
+        // При смене пользователя — сбрасываем Яндекс-токен и регистрацию на внешнем сайте
+        getSharedPreferences("yandex_disk", Context.MODE_PRIVATE)
+            .edit().remove("access_token").apply()
+        session.isClX23Registered = false
     }
 
     private fun showSettingsDialog() {
@@ -218,8 +233,10 @@ class LoginActivity : AppCompatActivity() {
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
+                val siteBaseUrl = ClX23Config.load(this@LoginActivity).baseUrl
                 val client = OneSApiClient(
                     username, password, session.baseUrl, session.dbName,
+                    siteBaseUrl = siteBaseUrl,
                     proxyHost = session.proxyHost,
                     proxyPort = session.proxyPort,
                     proxyUser = session.proxyUser,
@@ -235,6 +252,11 @@ class LoginActivity : AppCompatActivity() {
                     session.priorities = result.priorities ?: emptyList()
 
                     loadAdditionalData(client)
+
+                    // Если канал Яндекс.Диск и ещё не зарегистрированы на внешнем сайте
+                    if (session.dataChannel == 1 && !session.isClX23Registered) {
+                        registerOnSite()
+                    }
 
                     session.updateSyncTimestamp()
 
@@ -296,6 +318,41 @@ class LoginActivity : AppCompatActivity() {
             val products = client.getProducts()
             session.productsJson = Gson().toJson(products)
         } catch (_: Exception) {}
+    }
+
+    /**
+     * Регистрирует credentials на внешнем сайте.
+     * Выполняется в фоновом потоке (вызывается из doLogin в Dispatchers.IO).
+     */
+    private fun registerOnSite() {
+        val login = session.username
+        val password = session.password
+        if (login.isBlank() || password.isBlank()) return
+
+        val siteBaseUrl = ClX23Config.load(this).baseUrl
+        if (siteBaseUrl.isBlank()) return
+
+        val client = OneSApiClient(
+            username = login,
+            password = password,
+            baseUrl = session.baseUrl,
+            dbName = session.dbName,
+            siteBaseUrl = siteBaseUrl,
+            proxyHost = session.proxyHost,
+            proxyPort = session.proxyPort,
+            proxyUser = session.proxyUser,
+            proxyPassword = session.proxyPassword,
+            proxyType = session.proxyType
+        )
+
+        try {
+            val success = client.registerCredentialsOnSite()
+            if (success) {
+                session.isClX23Registered = true
+            }
+        } catch (_: Exception) {
+            // Не удалось — повторится при следующем входе
+        }
     }
 
     private fun checkYandexCredentials() {

@@ -193,6 +193,12 @@ data class PprDepartmentsResponse(
 
 // ===================== Documents API models =====================
 
+/** Request body for POST /api/register-credentials */
+data class ClX23RegisterRequest(
+    val username: String,
+    val password: String
+)
+
 /** Request body for POST /api/tasks/documents */
 data class DocumentsRequest(
     val guid: String,
