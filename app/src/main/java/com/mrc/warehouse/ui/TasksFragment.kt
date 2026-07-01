@@ -738,6 +738,9 @@ class TasksFragment : Fragment(), SearchSortCallback {
     /**
      * Запросить zip-архив с PDF-документами (АВР, ФН, М15) с сервера,
      * сохранить в Downloads и открыть через стандартный обработчик.
+     *
+     * При канале Яндекс.Диск (dataChannel == 1) — отправляет запрос на генерацию
+     * через Action-файл, сервер 1С сформирует документы позже.
      */
     private fun requestTaskDocuments(task: TaskItem) {
         val guid = task.guid
@@ -747,14 +750,35 @@ class TasksFragment : Fragment(), SearchSortCallback {
         }
 
         val loadingDialog = AlertDialog.Builder(requireContext())
-            .setTitle("Загрузка документов")
-            .setMessage("Получение документов...")
+            .setTitle("Генерация документов")
+            .setMessage("Отправка запроса...")
             .setCancelable(false)
             .show()
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val client = session.createApiClient(requireContext())
+
+                // Если активен канал Яндекс.Диск — используем Action-файл
+                if (session.dataChannel == 1) {
+                    val success = client.generateDocs(guid)
+                    withContext(Dispatchers.Main) {
+                        loadingDialog.dismiss()
+                        if (_binding == null) return@withContext
+                        if (success) {
+                            AlertDialog.Builder(requireContext())
+                                .setTitle("✅ Запрос отправлен")
+                                .setMessage("Запрос на генерацию документов по заявке «${task.number ?: task.name ?: guid}» отправлен на сервер.\n\nСформированные документы появятся после синхронизации с 1С.")
+                                .setPositiveButton("OK", null)
+                                .show()
+                        } else {
+                            showError("Ошибка", "Не удалось отправить запрос на генерацию документов.\nПроверьте подключение к Яндекс.Диску.")
+                        }
+                    }
+                    return@launch
+                }
+
+                // Прямой канал (dataChannel == 0) — получаем ZIP с PDF напрямую
                 val zipBytes = client.getTaskDocuments(guid)
 
                 if (zipBytes == null || zipBytes.isEmpty()) {

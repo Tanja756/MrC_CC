@@ -46,6 +46,8 @@ import java.util.concurrent.TimeUnit
  * Запись на Яндекс.Диск (action):
  * - taskClose() — при dataChannel == 1 формирует JSON-файл close_task_{guid}.json
  *   и загружает его в папку /{login}/Action/ на Яндекс.Диск.
+ * - generateDocs() — при dataChannel == 1 формирует JSON-файл generate_docs_{guid}.json
+ *   и загружает его в папку /{login}/Action/ на Яндекс.Диск.
  *   При dataChannel == 0 — делегирует на OneSApiClient.
  */
 class YDskApiClient(
@@ -246,6 +248,60 @@ class YDskApiClient(
 
             // 2. Формируем JSON-содержимое
             val jsonContent = buildCloseJson(requestBody)
+
+            // 3. Загружаем файл с временным именем .loading
+            val uploadSuccess = uploadJsonFile(token, "$remoteDir/$loadingFileName", jsonContent)
+            if (!uploadSuccess) return false
+
+            // 4. Небольшая задержка, чтобы Яндекс.Диск обработал загруженный файл
+            Thread.sleep(500)
+
+            // 5. Переименовываем .loading → .json (сервер видит только готовый .json)
+            //    С несколькими попытками, так как rename может не успеть с первого раза
+            var renameSuccess = renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
+            var attempts = 0
+            while (!renameSuccess && attempts < 3) {
+                Thread.sleep(1000)
+                renameSuccess = renameFile(token, "$remoteDir/$loadingFileName", "$remoteDir/$finalFileName")
+                attempts++
+            }
+            return renameSuccess
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Запрос на генерацию документов по задаче.
+     * Если канал данных = 0 (прямой 1С) — делегирует на OneSApiClient (получает zip с PDF).
+     * Если канал = 1 (Яндекс.Диск) — формирует JSON-файл и загружает
+     * в папку /{login}/Action/generate_docs_{GUID}.json на Яндекс.Диск.
+     * Сервер 1С подберёт этот файл, сформирует документы и загрузит результат
+     * в папку /{login}/Docs/<Date>/<SAP>/.
+     */
+    fun generateDocs(guid: String): Boolean {
+        // Прямой канал — делегируем на OneSApiClient (получает zip-архив с PDF)
+        if (session.dataChannel == 0) {
+            return fallbackClient.getTaskDocuments(guid) != null
+        }
+
+        // Яндекс.Диск — пишем файл в папку Action
+        val token = yandexToken
+        if (token.isNullOrEmpty()) return false
+
+        val login = session.username
+        if (login.isBlank()) return false
+
+        return try {
+            val remoteDir = "/$login/Action"
+            val loadingFileName = "generate_docs_${guid}.loading"
+            val finalFileName = "generate_docs_${guid}.json"
+
+            // 1. Создаём папку Action, если её нет
+            ensureFolderExists(token, remoteDir)
+
+            // 2. Формируем JSON-содержимое
+            val jsonContent = buildGenerateDocsJson(guid)
 
             // 3. Загружаем файл с временным именем .loading
             val uploadSuccess = uploadJsonFile(token, "$remoteDir/$loadingFileName", jsonContent)
@@ -623,6 +679,22 @@ class YDskApiClient(
                 attachmentsArr.add(attObj)
             }
             add("attachments", attachmentsArr)
+        }
+        return gson.toJson(jsonObject)
+    }
+
+    /**
+     * Формирует JSON-содержимое для файла generate_docs_{guid}.json
+     * Структура:
+     * {
+     *   "action": "generate_docs",
+     *   "guid": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+     * }
+     */
+    private fun buildGenerateDocsJson(guid: String): String {
+        val jsonObject = JsonObject().apply {
+            addProperty("action", "generate_docs")
+            addProperty("guid", guid)
         }
         return gson.toJson(jsonObject)
     }
