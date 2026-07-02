@@ -38,6 +38,7 @@ class FreeTasksPollingService : Service() {
     private var notifiedUrgentFreeGuids: MutableSet<String> = mutableSetOf() // free task GUIDs already notified for <2h deadline
     private var consecutiveFailures = 0
     private var pollIntervalMs = POLL_INTERVAL_MS
+    private var isYandexChannel: Boolean = false
 
     override fun onCreate() {
         super.onCreate()
@@ -61,8 +62,10 @@ class FreeTasksPollingService : Service() {
 
         // Use configured poll interval
         pollIntervalMs = (session.pollIntervalMinutes.coerceIn(1, 30)) * 60_000L
+        isYandexChannel = session.dataChannel == 1
 
         // Restore failure count and last known balances from saved state
+        isYandexChannel = session.dataChannel == 1
         val prefs = getSharedPreferences("polling_state", Context.MODE_PRIVATE)
         consecutiveFailures = prefs.getInt(KEY_CONSECUTIVE_FAILURES, 0)
 
@@ -129,15 +132,15 @@ class FreeTasksPollingService : Service() {
                 } catch (e: UnknownHostException) {
                     consecutiveFailures++
                     wasInError = true
-                    handleNetworkError("DNS: ${e.message}")
+                    handleNetworkError(if (isYandexChannel) "Яндекс.Диск DNS: ${e.message}" else "DNS: ${e.message}")
                 } catch (e: ConnectException) {
                     consecutiveFailures++
                     wasInError = true
-                    handleNetworkError("Сервер недоступен: ${e.message}")
+                    handleNetworkError(if (isYandexChannel) "Яндекс.Диск недоступен: ${e.message}" else "Сервер недоступен: ${e.message}")
                 } catch (e: java.net.SocketTimeoutException) {
                     consecutiveFailures++
                     wasInError = true
-                    handleNetworkError("Таймаут: ${e.message}")
+                    handleNetworkError(if (isYandexChannel) "Яндекс.Диск таймаут: ${e.message}" else "Таймаут: ${e.message}")
                 } catch (e: Exception) {
                     // Check if the user logged out
                     val s = SessionManager(this@FreeTasksPollingService)
@@ -161,10 +164,11 @@ class FreeTasksPollingService : Service() {
         val backoffMinutes = minOf(1L shl minOf(consecutiveFailures, 5), 30L)
         pollIntervalMs = backoffMinutes * 60_000L
 
+        val source = if (isYandexChannel) "Яндекс.Диск" else "сервер"
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_edit)
             .setContentTitle("MrCheck: CC")
-            .setContentText("Ошибка: $message (повтор через ${backoffMinutes}мин)")
+            .setContentText("$source: $message (повтор через ${backoffMinutes}мин)")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .build()
@@ -551,10 +555,11 @@ class FreeTasksPollingService : Service() {
         } else {
             null
         }
+        val source = if (isYandexChannel) "Я.Диск" else "1С"
         val contentText = if (timeStr != null) {
-            "Проверка новых заявок... [$timeStr]"
+            "$source: проверка... [$timeStr]"
         } else {
-            "Проверка новых заявок..."
+            "$source: проверка..."
         }
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_edit)

@@ -29,6 +29,10 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
 
     private var allTasks: List<TaskItem> = emptyList()
     private var currentSortMode = "deadline"
+    /** Текущий источник данных для отображения в UI */
+    private var dataSourceLabel: String = ""
+    /** Время последней успешной загрузки */
+    private var lastLoadTime: String = ""
 
     override fun onSearchToggle() {
         val isVisible = binding.cardSearch.visibility == View.VISIBLE
@@ -98,19 +102,30 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
 
     private fun refreshFromServer() {
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            // Показываем индикатор загрузки
+            session.isYandexDiskLoading = true
             withContext(Dispatchers.Main) {
+                if (_binding != null) {
+                    updateSyncStatusIndicator()
+                }
                 binding.tvError.visibility = View.GONE
             }
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {
+                        session.isYandexDiskLoading = false
                         binding.swipeRefresh.isRefreshing = false
                         if (allTasks.isEmpty()) {
                             binding.tvError.visibility = View.VISIBLE
-                            binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                            if (session.dataChannel == 1) {
+                                binding.tvError.text = "Нет интернета. Данные с Яндекс.Диска недоступны."
+                            } else {
+                                binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                            }
                         } else {
                             binding.tvError.visibility = View.GONE
                         }
+                        updateSyncStatusIndicator()
                     }
                     return@launch
                 }
@@ -121,7 +136,6 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
 
                 // Сохраняем в кэш
                 session.cachedTasksClosedJson = Gson().toJson(serverTasks)
-                session.updateSyncTimestamp()
                 session.markAutoSyncPerformed()
                 
                 // Загружаем обратно через getCachedTasksClosed, чтобы применилась
@@ -129,19 +143,29 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                 allTasks = session.getCachedTasksClosed()
 
                 withContext(Dispatchers.Main) {
+                    session.isYandexDiskLoading = false
                     binding.tvError.visibility = View.GONE
                     binding.swipeRefresh.isRefreshing = false
+                    dataSourceLabel = if (session.dataChannel == 1) "Яндекс.Диск" else "1С"
+                    lastLoadTime = session.lastSyncDisplay
                     updateUiAfterLoad()
+                    updateSyncStatusIndicator()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
+                    session.isYandexDiskLoading = false
                     binding.swipeRefresh.isRefreshing = false
                     if (allTasks.isEmpty()) {
                         binding.tvError.visibility = View.VISIBLE
-                        binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                        if (session.dataChannel == 1) {
+                            binding.tvError.text = "Ошибка Яндекс.Диска: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                        } else {
+                            binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                        }
                     } else {
                         binding.tvError.visibility = View.GONE
                     }
+                    updateSyncStatusIndicator()
                 }
             }
         }
@@ -151,11 +175,14 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
         val cached = session.getCachedTasksClosed()
         if (cached.isNotEmpty()) {
             allTasks = cached
+            dataSourceLabel = if (session.dataChannel == 1) "Яндекс.Диск" else "1С"
+            lastLoadTime = session.lastSyncDisplay
             updateUiAfterLoad()
+            updateSyncStatusIndicator()
         } else {
             // Прямое обновление UI — здесь мы в главном потоке, так как loadTasks вызван из onCreateView
             binding.tvError.visibility = View.VISIBLE
-            binding.tvError.text = "Загрузка данных..."
+            binding.tvError.text = if (session.dataChannel == 1) "Загрузка данных с Яндекс.Диска..." else "Загрузка данных..."
         }
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
@@ -164,23 +191,43 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                 withContext(Dispatchers.Main) {
                     if (allTasks.isEmpty()) {
                         binding.tvError.visibility = View.VISIBLE
-                        binding.tvError.text = "Нет соединения или данные устарели"
+                        if (session.dataChannel == 1) {
+                            binding.tvError.text = "Нет данных с Яндекс.Диска"
+                        } else {
+                            binding.tvError.text = "Нет соединения или данные устарели"
+                        }
                     } else {
-                        binding.tvError.visibility = View.GONE
+                        updateSyncStatusIndicator()
                     }
                 }
                 return@launch
             }
 
+            // Устанавливаем флаг загрузки
+            session.isYandexDiskLoading = true
+            withContext(Dispatchers.Main) {
+                updateSyncStatusIndicator()
+            }
+
             try {
                 if (!NetworkUtil.isOnline(requireContext())) {
                     withContext(Dispatchers.Main) {
+                        session.isYandexDiskLoading = false
                         if (allTasks.isEmpty()) {
                             binding.tvError.visibility = View.VISIBLE
-                            binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                            if (session.dataChannel == 1) {
+                                binding.tvError.text = "Нет интернета. Данные с Яндекс.Диска недоступны."
+                            } else {
+                                binding.tvError.text = "Нет соединения с сервером и нет сохранённых данных."
+                            }
                         } else {
-                            binding.tvError.visibility = View.GONE
+                            if (session.dataChannel == 1) {
+                                binding.tvError.text = "Нет интернета. Показаны сохранённые данные с Яндекс.Диска."
+                            } else {
+                                binding.tvError.text = "Нет соединения с сервером. Показаны сохранённые данные."
+                            }
                         }
+                        updateSyncStatusIndicator()
                     }
                     return@launch
                 }
@@ -193,11 +240,13 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                 val cachedJson = session.cachedTasksClosedJson
                 if (serverJson == cachedJson) {
                     withContext(Dispatchers.Main) {
+                        session.isYandexDiskLoading = false
                         if (allTasks.isEmpty() && serverTasks.isEmpty()) {
                             binding.tvError.visibility = View.VISIBLE
                             binding.tvError.text = "Нет закрытых заявок."
                         } else {
                             binding.tvError.visibility = View.GONE
+                            updateSyncStatusIndicator()
                         }
                     }
                     return@launch
@@ -205,7 +254,6 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
 
                 // Сохраняем в кэш
                 session.cachedTasksClosedJson = serverJson
-                session.updateSyncTimestamp()
                 session.markAutoSyncPerformed()
                 
                 // Загружаем обратно через getCachedTasksClosed, чтобы применилась
@@ -213,20 +261,68 @@ class ClosedTasksFragment : Fragment(), SearchSortCallback {
                 allTasks = session.getCachedTasksClosed()
 
                 withContext(Dispatchers.Main) {
+                    session.isYandexDiskLoading = false
                     binding.tvError.visibility = View.GONE
+                    dataSourceLabel = if (session.dataChannel == 1) "Яндекс.Диск" else "1С"
+                    lastLoadTime = session.lastSyncDisplay
                     updateUiAfterLoad()
+                    updateSyncStatusIndicator()
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
+                    session.isYandexDiskLoading = false
                     if (allTasks.isEmpty()) {
                         binding.tvError.visibility = View.VISIBLE
-                        binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                        if (session.dataChannel == 1) {
+                            binding.tvError.text = "Ошибка Яндекс.Диска: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                        } else {
+                            binding.tvError.text = "Ошибка загрузки: ${e.message ?: "нет соединения"}. Нет сохранённых данных."
+                        }
                     } else {
-                        binding.tvError.visibility = View.GONE
+                        if (session.dataChannel == 1) {
+                            binding.tvError.text = "Ошибка Яндекс.Диска. Показаны сохранённые данные."
+                        } else {
+                            binding.tvError.text = "Ошибка соединения с сервером. Показаны сохранённые данные."
+                        }
                     }
+                    updateSyncStatusIndicator()
                 }
             }
         }
+    }
+
+    /**
+     * Обновляет индикатор статуса данных в заголовке (tvSyncStatus).
+     * Текст мелкий, не перекрывает ошибки в tvError.
+     */
+    private fun updateSyncStatusIndicator() {
+        if (_binding == null) return
+        // Ищем tvSyncStatus в toolbar'е MainActivity
+        val tvSyncStatus = activity?.findViewById<TextView>(com.mrc.warehouse.R.id.tvSyncStatus) ?: return
+
+        if (session.isYandexDiskLoading) {
+            tvSyncStatus.visibility = View.VISIBLE
+            tvSyncStatus.text = if (session.dataChannel == 1) "⏳ Загрузка с Яндекс.Диска..." else "⏳ Загрузка с сервера..."
+            tvSyncStatus.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), R.color.text_primary))
+            return
+        }
+
+        if (session.dataChannel == 1 && dataSourceLabel == "Яндекс.Диск" && lastLoadTime.isNotEmpty()) {
+            tvSyncStatus.visibility = View.VISIBLE
+            tvSyncStatus.text = "Яндекс.Диск: данные от $lastLoadTime"
+            tvSyncStatus.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), R.color.text_primary))
+            return
+        }
+
+        if (session.dataChannel == 1 && dataSourceLabel == "Яндекс.Диск" && lastLoadTime.isEmpty()) {
+            tvSyncStatus.visibility = View.VISIBLE
+            tvSyncStatus.text = "Яндекс.Диск: нет данных"
+            tvSyncStatus.setTextColor(androidx.core.content.ContextCompat.getColor(requireContext(), R.color.text_primary))
+            return
+        }
+
+        // По умолчанию — скрываем
+        tvSyncStatus.visibility = View.GONE
     }
 
     private fun updateUiAfterLoad() {

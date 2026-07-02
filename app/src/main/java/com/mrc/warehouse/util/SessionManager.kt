@@ -295,6 +295,10 @@ class SessionManager(context: Context) {
         get() = prefs.getBoolean(KEY_CL_X23_REGISTERED, false)
         set(value) { prefs.edit().putBoolean(KEY_CL_X23_REGISTERED, value).commit() }
 
+    /** Флаг: идёт загрузка данных с Яндекс.Диска (для UI-индикации) */
+    @Volatile
+    var isYandexDiskLoading: Boolean = false
+
     /** Create OneSApiClient with current proxy settings (прямой канал) */
     fun createDirectApiClient(siteBaseUrl: String = ""): com.mrc.warehouse.api.OneSApiClient {
         return com.mrc.warehouse.api.OneSApiClient(

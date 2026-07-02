@@ -68,8 +68,8 @@ class YDskApiClient(
     private val yandexToken: String?
         get() = yandexPrefs.getString("access_token", null)
 
-    /** Минимальный интервал между загрузками файлов с диска (10 минут) */
-    private val cacheTtlMs = 10 * 60 * 1000L
+    /** Минимальный интервал между загрузками файлов с диска (5 минут) */
+    private val cacheTtlMs = 5 * 60 * 1000L
 
     // ---- Кэш in-memory ----
     private var cachedData: CachedDiskData? = null
@@ -487,6 +487,10 @@ class YDskApiClient(
             )
             cachedData = parsed
             lastCacheTime = now
+
+            // 6. Синхронизируем с SharedPreferences (для офлайн-доступа)
+            saveToSessionCache(parsed)
+
             parsed
         } catch (e: Exception) {
             // При ошибке используем старый кэш, если есть
@@ -538,6 +542,44 @@ class YDskApiClient(
             return json.get("href")?.asString
         }
         return null
+    }
+
+    /**
+     * Сохраняет загруженные с Яндекс.Диска данные в SharedPreferences (SessionManager),
+     * чтобы они были доступны офлайн и при пересоздании Activity.
+     */
+    private fun saveToSessionCache(data: CachedDiskData) {
+        try {
+            // Сохраняем задачи пользователя
+            val tasksUserTasks = data.tasks?.tasksUser?.tasks
+            if (tasksUserTasks != null) {
+                session.cachedTasksUserJson = gson.toJson(tasksUserTasks)
+            }
+
+            // Сохраняем свободные задачи
+            val tasksFreeTasks = data.tasks?.tasksUnallocated?.tasks
+            if (tasksFreeTasks != null) {
+                session.cachedTasksFreeJson = gson.toJson(tasksFreeTasks)
+            }
+
+            // Сохраняем закрытые задачи
+            val tasksClosedTasks = data.tasks?.tasksClosed?.tasks
+            if (tasksClosedTasks != null) {
+                session.cachedTasksClosedJson = gson.toJson(tasksClosedTasks)
+            }
+
+            // Сохраняем остатки по складам
+            if (data.warehouse != null) {
+                data.warehouse.forEach { (storageGuid, balances) ->
+                    session.setCachedBalances(storageGuid, balances)
+                }
+            }
+
+            // Обновляем timestamp синхронизации
+            session.updateSyncTimestamp()
+        } catch (_: Exception) {
+            // Ошибка сохранения кэша не критична для работы
+        }
     }
 
     /**
